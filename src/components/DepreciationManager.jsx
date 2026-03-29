@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { CustomDepreciation } from "@/api/entities";
 
 const MAKES = ["Maruti", "Hyundai", "Tata", "Honda", "Kia", "Toyota", "Renault", "Nissan", "MG", "Skoda", "Volkswagen", "Ford", "Chevrolet", "Mahindra", "Other"];
 const MODELS_BY_MAKE = {
@@ -44,7 +44,7 @@ export default function DepreciationManager() {
 
   const loadRules = () => {
     setLoading(true);
-    base44.entities.CustomDepreciation.list()
+    CustomDepreciation.list()
       .then(data => {
         setRules(data.sort((a, b) => `${a.make}${a.model}`.localeCompare(`${b.make}${b.model}`)));
         setLoading(false);
@@ -60,9 +60,9 @@ export default function DepreciationManager() {
       depreciation_percent_per_year: Number(form.depreciation_percent_per_year),
     };
     if (editingId) {
-      await base44.entities.CustomDepreciation.update(editingId, data);
+      await CustomDepreciation.update(editingId, data);
     } else {
-      await base44.entities.CustomDepreciation.create(data);
+      await CustomDepreciation.create(data);
     }
     setSaving(false);
     cancelForm();
@@ -83,7 +83,7 @@ export default function DepreciationManager() {
   };
 
   const deleteRule = async (id) => {
-    await base44.entities.CustomDepreciation.delete(id);
+    await CustomDepreciation.delete(id);
     setRules(prev => prev.filter(r => r.id !== id));
   };
 

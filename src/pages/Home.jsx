@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { CarEvaluation, CarListing, ScrapeLog, ConditionCheck } from "../api/entities";
 import { scrapeListings } from "../api/backendFunctions";
-import { base44 } from "@/api/base44Client";
+import { supabase } from "../api/supabaseClient";
+import { calculateFairValue, getMarketStats, getDecision } from "../utils/calculate";
 import ConditionManager from "../components/ConditionManager";
 import SourcesPage from "../components/SourcesPage";
 import ExShowroomPriceManager from "../components/ExShowroomPriceManager";
@@ -221,9 +222,6 @@ function DashboardPage({ stats, recentEvals, lastSync, onNavigate }) {
   );
 }
 
-const BRANCHES = ["Jaipur Main", "Jaipur North", "Jaipur South", "Jaipur East", "Jaipur West"];
-const CA_NAMES = ["Rahul Sharma", "Priya Singh", "Amit Verma", "Sunita Joshi", "Deepak Gupta"];
-const EVALUATOR_NAMES = ["Vikram Patel", "Neha Agarwal", "Suresh Kumar", "Anjali Mehta", "Rohit Yadav"];
 
 // ─── EVALUATE ────────────────────────────────────────────────────────────────
 function EvaluatePage() {
@@ -247,6 +245,9 @@ function EvaluatePage() {
   const [fetchingMarket, setFetchingMarket] = useState(false);
   const [fetchingExShowroom, setFetchingExShowroom] = useState(false);
   const [exShowroomData, setExShowroomData] = useState(null);
+  const [branches, setBranches] = useState([]);
+  const [caNames, setCaNames] = useState([]);
+  const [evaluatorNames, setEvaluatorNames] = useState([]);
 
   useEffect(() => {
     ConditionCheck.filter({ is_active: true }).then(data => {
@@ -254,6 +255,20 @@ function EvaluatePage() {
       const defaults = {};
       data.forEach(c => { defaults[c.id] = !c.is_negative; });
       setCondChecks(defaults);
+    });
+
+    // Load branches from locations table
+    supabase.from('locations').select('name').then(({ data }) => {
+      if (data) setBranches(data.map(r => r.name));
+    });
+
+    // Load CAs and evaluators from employees table
+    supabase.from('employees').select('first_name, last_name').eq('employee_status', 'active').then(({ data }) => {
+      if (data) {
+        const names = data.map(e => `${e.first_name} ${e.last_name}`.trim()).filter(Boolean);
+        setCaNames(names);
+        setEvaluatorNames(names);
+      }
     });
   }, []);
 
@@ -287,22 +302,29 @@ function EvaluatePage() {
   const evaluate = async () => {
     setLoading(true); setResult(null); setSaved(false);
     try {
-      const res = await scrapeListings({
-        action: "calculate",
-        params: {
-          ...form,
-          year: Number(form.year),
-          km_driven: Number(form.km_driven),
-          num_owners: Number(form.num_owners),
-          seller_asking_price: form.seller_asking_price ? Number(form.seller_asking_price) : null,
-          custom_conditions: conditions.map(c => ({
-            id: c.id, name: c.name, is_negative: c.is_negative,
-            depreciation_percent: c.depreciation_percent,
-            checked: !!condChecks[c.id],
-          })),
-        },
+      const params = {
+        ...form,
+        year: Number(form.year),
+        km_driven: Number(form.km_driven),
+        num_owners: Number(form.num_owners),
+        seller_asking_price: form.seller_asking_price ? Number(form.seller_asking_price) : null,
+        custom_conditions: conditions.map(c => ({
+          id: c.id, name: c.name, is_negative: c.is_negative,
+          depreciation_percent: c.depreciation_percent,
+          checked: !!condChecks[c.id],
+        })),
+      };
+      const { fairValue, basePrice, age } = await calculateFairValue(supabase, params);
+      const suggestedPurchasePrice = Math.round(fairValue / 1.10);
+      const marketStats = await getMarketStats(supabase, params.make, params.model, params.year);
+      const decision = getDecision(params.seller_asking_price, suggestedPurchasePrice);
+      setResult({
+        fair_value: fairValue,
+        suggested_purchase_price: suggestedPurchasePrice,
+        decision,
+        breakdown: { base_price_used: basePrice, age_years: age },
+        market_stats: marketStats,
       });
-      setResult(res.data || res);
     } catch (e) { alert("Error: " + e.message); }
     setLoading(false);
   };
@@ -369,21 +391,21 @@ function EvaluatePage() {
               <label className="text-xs font-medium text-gray-500 mb-1 block">Branch</label>
               <select value={form.branch} onChange={e => set("branch", e.target.value)} className={SEL}>
                 <option value="">Select Branch</option>
-                {BRANCHES.map(b => <option key={b}>{b}</option>)}
+                {branches.map(b => <option key={b}>{b}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">CA Name</label>
               <select value={form.ca_name} onChange={e => set("ca_name", e.target.value)} className={SEL}>
                 <option value="">Select CA</option>
-                {CA_NAMES.map(n => <option key={n}>{n}</option>)}
+                {caNames.map(n => <option key={n}>{n}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Evaluator Name</label>
               <select value={form.evaluator_name} onChange={e => set("evaluator_name", e.target.value)} className={SEL}>
                 <option value="">Select Evaluator</option>
-                {EVALUATOR_NAMES.map(n => <option key={n}>{n}</option>)}
+                {evaluatorNames.map(n => <option key={n}>{n}</option>)}
               </select>
             </div>
           </div>

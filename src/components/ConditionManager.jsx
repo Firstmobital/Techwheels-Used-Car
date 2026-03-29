@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { ConditionCheck } from "@/api/entities";
 
 const DEFAULT_CONDITIONS = [
   { name: "Accident History", description: "Car has been in a past accident", is_negative: true, depreciation_percent: 15, is_active: true },
@@ -36,7 +36,7 @@ export default function ConditionManager() {
 
   const loadConditions = () => {
     setLoading(true);
-    base44.entities.ConditionCheck.list().then(data => {
+    ConditionCheck.list().then(data => {
       setConditions(data.sort((a, b) => a.name.localeCompare(b.name)));
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -45,7 +45,7 @@ export default function ConditionManager() {
   const seedDefaults = async () => {
     setSeeding(true);
     for (const c of DEFAULT_CONDITIONS) {
-      await base44.entities.ConditionCheck.create(c);
+      await ConditionCheck.create(c);
     }
     setSeeding(false);
     loadConditions();
@@ -55,9 +55,9 @@ export default function ConditionManager() {
   const saveCondition = async () => {
     if (!form.name.trim()) return;
     if (editingId) {
-      await base44.entities.ConditionCheck.update(editingId, form);
+      await ConditionCheck.update(editingId, form);
     } else {
-      await base44.entities.ConditionCheck.create(form);
+      await ConditionCheck.create(form);
     }
     setForm({ name: "", description: "", is_negative: false, depreciation_percent: 5, is_active: true });
     setEditingId(null);
@@ -72,12 +72,12 @@ export default function ConditionManager() {
   };
 
   const toggleActive = async (c) => {
-    await base44.entities.ConditionCheck.update(c.id, { is_active: !c.is_active });
+    await ConditionCheck.update(c.id, { is_active: !c.is_active });
     setConditions(prev => prev.map(x => x.id === c.id ? { ...x, is_active: !x.is_active } : x));
   };
 
   const deleteCondition = async (id) => {
-    await base44.entities.ConditionCheck.delete(id);
+    await ConditionCheck.delete(id);
     setConditions(prev => prev.filter(c => c.id !== id));
   };
 

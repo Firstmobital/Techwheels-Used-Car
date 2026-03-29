@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
-import { scrapeListings } from "@/functions/scrapeListings";
+import { ScrapeSource } from "@/api/entities";
+import { scrapeListings } from "@/api/backendFunctions";
 
 const PRESET_SOURCES = [
   { name: "Cars24 Jaipur", url: "https://www.cars24.com/buy-used-cars-jaipur/" },
@@ -25,7 +25,7 @@ export default function SourcesPage({ onSyncDone }) {
 
   const loadSources = () => {
     setLoading(true);
-    base44.entities.ScrapeSource.list().then(data => {
+    ScrapeSource.list().then(data => {
       setSources(data.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -34,7 +34,7 @@ export default function SourcesPage({ onSyncDone }) {
   const addSource = async (name, url) => {
     if (!name.trim() || !url.trim()) return;
     setAdding(true);
-    await base44.entities.ScrapeSource.create({ name: name.trim(), url: url.trim(), is_active: true });
+    await ScrapeSource.create({ name: name.trim(), url: url.trim(), is_active: true });
     setNewName(""); setNewUrl("");
     setAdding(false);
     loadSources();
@@ -43,17 +43,17 @@ export default function SourcesPage({ onSyncDone }) {
   const addPreset = async (preset) => {
     const exists = sources.find(s => s.url === preset.url);
     if (exists) { setMsg({ type: "warn", text: `${preset.name} already added.` }); return; }
-    await base44.entities.ScrapeSource.create({ name: preset.name, url: preset.url, is_active: true });
+    await ScrapeSource.create({ name: preset.name, url: preset.url, is_active: true });
     loadSources();
   };
 
   const toggleSource = async (source) => {
-    await base44.entities.ScrapeSource.update(source.id, { is_active: !source.is_active });
+    await ScrapeSource.update(source.id, { is_active: !source.is_active });
     setSources(prev => prev.map(s => s.id === source.id ? { ...s, is_active: !s.is_active } : s));
   };
 
   const deleteSource = async (id) => {
-    await base44.entities.ScrapeSource.delete(id);
+    await ScrapeSource.delete(id);
     setSources(prev => prev.filter(s => s.id !== id));
   };
 

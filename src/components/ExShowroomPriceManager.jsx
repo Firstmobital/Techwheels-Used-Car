@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import { ExShowroomPrice } from "@/api/entities";
 
 const MAKES = ["Maruti", "Hyundai", "Tata", "Honda", "Kia", "Toyota", "Renault", "Nissan", "MG", "Skoda", "Volkswagen", "Ford", "Chevrolet", "Mahindra", "Other"];
 
@@ -27,7 +27,7 @@ export default function ExShowroomPriceManager() {
 
   const loadPrices = () => {
     setLoading(true);
-    base44.entities.ExShowroomPrice.list().then(data => {
+    ExShowroomPrice.list().then(data => {
       setPrices(data.sort((a, b) => `${a.make}${a.model}`.localeCompare(`${b.make}${b.model}`)));
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -38,9 +38,9 @@ export default function ExShowroomPriceManager() {
     setSaving(true);
     const data = { ...form, ex_showroom_price: Number(form.ex_showroom_price) };
     if (editingId) {
-      await base44.entities.ExShowroomPrice.update(editingId, data);
+      await ExShowroomPrice.update(editingId, data);
     } else {
-      await base44.entities.ExShowroomPrice.create(data);
+      await ExShowroomPrice.create(data);
     }
     setSaving(false);
     cancelForm();
@@ -54,7 +54,7 @@ export default function ExShowroomPriceManager() {
   };
 
   const deletePrice = async (id) => {
-    await base44.entities.ExShowroomPrice.delete(id);
+    await ExShowroomPrice.delete(id);
     setPrices(prev => prev.filter(p => p.id !== id));
   };
 
@@ -104,7 +104,7 @@ export default function ExShowroomPriceManager() {
       const variant = variantIdx !== -1 ? cols[variantIdx] : "";
       const price = Number(cols[priceIdx]);
       if (!make || !model || !price) continue;
-      await base44.entities.ExShowroomPrice.create({ make, model, variant, ex_showroom_price: price });
+      await ExShowroomPrice.create({ make, model, variant, ex_showroom_price: price });
       successCount++;
     }
     setUploadMsg({ type: "success", text: `Imported ${successCount} records successfully.` });
