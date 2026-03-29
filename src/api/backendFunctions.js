@@ -1,0 +1,1 @@
+export { scrapeListings } from '@/functions/scrapeListings';
