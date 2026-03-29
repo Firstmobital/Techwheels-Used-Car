@@ -26,7 +26,7 @@ export default function SourcesPage({ onSyncDone }) {
   const loadSources = () => {
     setLoading(true);
     ScrapeSource.list().then(data => {
-      setSources(data.sort((a, b) => new Date(b.created_date) - new Date(a.created_date)));
+      setSources(data.sort((a, b) => new Date(b.created_date).getTime() - new Date(a.created_date).getTime()));
       setLoading(false);
     }).catch(() => setLoading(false));
   };
@@ -61,7 +61,7 @@ export default function SourcesPage({ onSyncDone }) {
     setScrapingId(source.id);
     setMsg(null);
     const res = await scrapeListings({ action: "scrape", sourceIds: [source.id] });
-    setMsg({ type: "success", text: res.data?.message || "Done" });
+    setMsg({ type: "success", text: res?.message || "Done" });
     setScrapingId(null);
     loadSources();
     onSyncDone && onSyncDone();
@@ -71,7 +71,7 @@ export default function SourcesPage({ onSyncDone }) {
     setScraping(true);
     setMsg(null);
     const res = await scrapeListings({ action: "scrape" });
-    setMsg({ type: "success", text: res.data?.message || "Done" });
+    setMsg({ type: "success", text: res?.message || "Done" });
     setScraping(false);
     loadSources();
     onSyncDone && onSyncDone();

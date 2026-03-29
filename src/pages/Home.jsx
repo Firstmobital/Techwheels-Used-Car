@@ -74,9 +74,9 @@ export default function Home() {
           overpriced: evals.filter(e => e.decision === "Overpriced").length,
           listings: listings.length,
         });
-        setRecentEvals(evals.sort((a, b) => new Date(b.eval_date || b.created_date) - new Date(a.eval_date || a.created_date)).slice(0, 5));
+        setRecentEvals(evals.sort((a, b) => new Date(b.eval_date || b.created_date).getTime() - new Date(a.eval_date || a.created_date).getTime()).slice(0, 5));
         if (logs.length > 0) {
-          const sorted = logs.sort((a, b) => new Date(b.scrape_date) - new Date(a.scrape_date));
+          const sorted = logs.sort((a, b) => new Date(b.scrape_date).getTime() - new Date(a.scrape_date).getTime());
           setLastSync(sorted[0]);
         }
       }).catch(() => {});
@@ -746,14 +746,14 @@ function HistoryPage() {
   const [search, setSearch] = useState("");
   const [editModal, setEditModal] = useState(null);
   const [editMode, setEditMode] = useState(false);
-  const [editFields, setEditFields] = useState({});
+  const [editFields, setEditFields] = useState(/** @type {Record<string, any>} */ ({}));
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const loadEvals = () => {
     CarEvaluation.list()
       .then(data => {
-        setEvals(data.sort((a, b) => new Date(b.eval_date || b.created_date) - new Date(a.eval_date || a.created_date)));
+        setEvals(data.sort((a, b) => new Date(b.eval_date || b.created_date).getTime() - new Date(a.eval_date || a.created_date).getTime()));
         setLoading(false);
       }).catch(() => setLoading(false));
   };
