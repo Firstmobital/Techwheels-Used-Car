@@ -8,10 +8,33 @@ const CORS_HEADERS = {
 };
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_MODEL = 'gemini-2.5-flash'; // ✅ stable model available to all users
 
-async function gemini(prompt: string, schema: object): Promise<unknown> {
-  const res = await fetch(GEMINI_URL, {
+// Step 1: Grounded search (google_search tool) — returns plain text
+async function geminiSearch(prompt: string): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      tools: [{ google_search: {} }],
+    }),
+  });
+  const json = await res.json();
+  if (json.error) {
+    console.error('Gemini search error:', json.error.code, json.error.message);
+    return '';
+  }
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  console.log('Gemini search response length:', text.length);
+  return text;
+}
+
+// Step 2: Structured extraction (responseSchema) — no google_search here
+async function geminiExtract(prompt: string, schema: object): Promise<unknown> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -20,12 +43,15 @@ async function gemini(prompt: string, schema: object): Promise<unknown> {
         responseMimeType: 'application/json',
         responseSchema: schema,
       },
-      tools: [{ google_search: {} }],
     }),
   });
   const json = await res.json();
+  if (json.error) {
+    console.error('Gemini extract error:', json.error.code, json.error.message);
+    return {};
+  }
   const text = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-  return JSON.parse(text);
+  try { return JSON.parse(text); } catch { return {}; }
 }
 
 const LISTING_SCHEMA = {
@@ -36,113 +62,110 @@ const LISTING_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          make: { type: 'string' },
-          model: { type: 'string' },
-          variant: { type: 'string' },
-          year: { type: 'number' },
-          km_driven: { type: 'number' },
-          fuel_type: { type: 'string' },
-          transmission: { type: 'string' },
-          asking_price: { type: 'number' },
-          listing_url: { type: 'string' },
-          location: { type: 'string' },
-          source: { type: 'string' },
+          make: { type: 'string' }, model: { type: 'string' }, variant: { type: 'string' },
+          year: { type: 'number' }, km_driven: { type: 'number' }, fuel_type: { type: 'string' },
+          transmission: { type: 'string' }, asking_price: { type: 'number' },
+          listing_url: { type: 'string' }, location: { type: 'string' }, source: { type: 'string' },
         },
       },
     },
     market_stats: {
       type: 'object',
       properties: {
-        min_price: { type: 'number' },
-        max_price: { type: 'number' },
-        avg_price: { type: 'number' },
-        count: { type: 'number' },
+        min_price: { type: 'number' }, max_price: { type: 'number' },
+        avg_price: { type: 'number' }, count: { type: 'number' },
       },
     },
   },
 };
 
-async function handleFetchExShowroomPrice(supabase: ReturnType<typeof createClient>, params: Record<string, string>) {
+async function handleFetchExShowroomPrice(supabase, params) {
   const { make, model, variant, fuel_type, transmission } = params;
-  const fuelDesc = fuel_type ? ` ${fuel_type}` : '';
-  const transDesc = transmission ? ` ${transmission}` : '';
-  const variantDesc = variant ? ` ${variant}` : '';
 
-  const prompt = `Search for the current ex-showroom price of ${make} ${model}${variantDesc}${fuelDesc}${transDesc} in India (2024-2025).
-IMPORTANT: The car is a ${fuel_type || 'Petrol'} variant${transmission ? ' with ' + transmission + ' transmission' : ''}. Make sure you return the price for the ${fuel_type || 'Petrol'} version, NOT the petrol/base version if a different fuel type is specified (e.g. Electric variants are significantly more expensive than petrol).
-Give the most recent ex-showroom price in INR as a number (e.g. 8.5 lakhs = 850000).
-Return the make, model, variant, and ex_showroom_price as a number only (no symbols).`;
+  if (!GEMINI_API_KEY) {
+    return { error: 'GEMINI_API_KEY secret is not set in Supabase Edge Function secrets.' };
+  }
+
+  const variantDesc = variant ? ` ${variant}` : '';
+  const fuelDesc = fuel_type ? ` ${fuel_type}` : '';
+
+  // Step 1: search with grounding
+  const searchPrompt = `What is the current ex-showroom price of ${make} ${model}${variantDesc}${fuelDesc} in India in 2024-2025? Give the exact price in rupees.`;
+  const searchResult = await geminiSearch(searchPrompt);
+
+  if (!searchResult) {
+    return { error: 'Gemini API call failed. Check edge function logs for the exact error.' };
+  }
+
+  // Step 2: extract structured number from search result
+  const extractPrompt = `Based on this information:
+"${searchResult.slice(0, 2000)}"
+
+Extract the ex-showroom price for ${make} ${model}${variantDesc}${fuelDesc} in India.
+Return ex_showroom_price as a plain number in INR (e.g. 8.5 lakhs = 850000).`;
 
   const schema = {
     type: 'object',
     properties: {
-      make: { type: 'string' },
-      model: { type: 'string' },
-      variant: { type: 'string' },
-      ex_showroom_price: { type: 'number' },
-      price_source: { type: 'string' },
+      make: { type: 'string' }, model: { type: 'string' }, variant: { type: 'string' },
+      ex_showroom_price: { type: 'number' }, price_source: { type: 'string' },
     },
+    required: ['ex_showroom_price'],
   };
 
-  const response = await gemini(prompt, schema) as Record<string, unknown>;
+  const response = await geminiExtract(extractPrompt, schema) as Record<string, unknown>;
+  console.log('Extracted price:', JSON.stringify(response));
 
-  if (!response.ex_showroom_price) {
-    return { error: 'Could not fetch ex-showroom price' };
+  if (!response.ex_showroom_price || Number(response.ex_showroom_price) < 10000) {
+    return { error: 'Could not parse price from search results.' };
   }
 
   const variantToSave = variant || '';
   const { data: existing } = await supabase
-    .from('used_car_ex_showroom_prices')
-    .select('*')
-    .eq('make', make)
-    .eq('model', model);
+    .from('used_car_ex_showroom_prices').select('*').eq('make', make).eq('model', model);
 
-  const matchExact = (existing ?? []).find((e: Record<string, unknown>) => {
-    const variantMatch = (e.variant || '') === variantToSave;
-    const fuelMatch = !fuel_type || !e.fuel_type || e.fuel_type === fuel_type;
-    return variantMatch && fuelMatch;
-  });
+  const matchExact = (existing ?? []).find((e) =>
+    (e.variant || '') === variantToSave && (!fuel_type || !e.fuel_type || e.fuel_type === fuel_type)
+  );
 
   if (matchExact) {
-    await supabase.from('used_car_ex_showroom_prices').update({ ex_showroom_price: response.ex_showroom_price }).eq('id', matchExact.id);
+    await supabase.from('used_car_ex_showroom_prices')
+      .update({ ex_showroom_price: response.ex_showroom_price }).eq('id', matchExact.id);
   } else {
     await supabase.from('used_car_ex_showroom_prices').insert({
-      make,
-      model,
-      variant: variantToSave,
-      fuel_type: fuel_type || null,
+      make, model, variant: variantToSave, fuel_type: fuel_type || null,
       ex_showroom_price: response.ex_showroom_price,
     });
   }
 
   return {
     ex_showroom_price: response.ex_showroom_price,
-    price_source: response.price_source || 'Web Search',
-    make: response.make || make,
-    model: response.model || model,
-    variant: response.variant || variantToSave,
+    price_source: response.price_source || 'Google Search via Gemini',
+    make: response.make || make, model: response.model || model, variant: response.variant || variantToSave,
   };
 }
 
-async function handleScrape(supabase: ReturnType<typeof createClient>) {
+async function handleScrape(supabase) {
   const { data: allSources } = await supabase
-    .from('used_car_scrape_sources')
-    .select('*')
-    .eq('is_active', true);
+    .from('used_car_scrape_sources').select('*').eq('is_active', true);
 
   if (!allSources || allSources.length === 0) {
-    return { message: 'No active sources configured. Add sources in the Sources tab.', saved_to_db: 0 };
+    return { message: 'No active sources configured.', saved_to_db: 0 };
   }
 
   let totalSaved = 0;
   const results = [];
 
   for (const source of allSources) {
-    const prompt = `Search for used car listings on ${source.name} (${source.url}) in Jaipur, India.
-Find 10-15 diverse used car listings. For each provide: make, model, variant, year, km_driven, fuel_type (Petrol/Diesel/CNG/Electric/Hybrid), transmission (Manual/Automatic), asking_price in INR as a number (e.g. 5.5 lakhs = 550000), listing_url, location, source name.
-Also provide overall market_stats: min_price, max_price, avg_price, count.`;
+    const searchPrompt = `Search for 10-15 used car listings on ${source.name} (${source.url}) in Jaipur, India. List make, model, year, km driven, fuel type, transmission, asking price for each.`;
+    const searchResult = await geminiSearch(searchPrompt);
+    if (!searchResult) continue;
 
-    const response = await gemini(prompt, LISTING_SCHEMA) as { listings?: Record<string, unknown>[] };
+    const extractPrompt = `Based on these used car listings:
+"${searchResult.slice(0, 3000)}"
+Extract all listings. Asking prices in INR as plain numbers (5.5 lakhs = 550000).`;
+
+    const response = await geminiExtract(extractPrompt, LISTING_SCHEMA) as { listings?: Record<string, unknown>[] };
     const listings = response.listings ?? [];
     let sourceSaved = 0;
 
@@ -162,30 +185,31 @@ Also provide overall market_stats: min_price, max_price, avg_price, count.`;
     totalSaved += sourceSaved;
     results.push({ source: source.name, count: sourceSaved });
     await supabase.from('used_car_scrape_sources').update({
-      last_scraped: new Date().toISOString(),
-      listings_count: sourceSaved,
+      last_scraped: new Date().toISOString(), listings_count: sourceSaved,
     }).eq('id', source.id);
   }
 
   await supabase.from('used_car_scrape_logs').insert({
-    scrape_date: new Date().toISOString(),
-    listings_saved: totalSaved,
+    scrape_date: new Date().toISOString(), listings_saved: totalSaved,
     status: totalSaved > 0 ? 'Success' : 'Partial',
-    source: allSources.map((s: Record<string, unknown>) => s.name).join(', '),
+    source: allSources.map((s) => s.name).join(', '),
   });
 
   return { message: `Synced ${totalSaved} listings from ${allSources.length} source(s)`, saved_to_db: totalSaved, results };
 }
 
-async function handleFetchTargetedMarketData(supabase: ReturnType<typeof createClient>, params: Record<string, unknown>) {
+async function handleFetchTargetedMarketData(supabase, params) {
   const { make, model, year } = params;
 
-  const prompt = `Find real-time used car market data for a ${year} ${make} ${model} in Jaipur, India.
-Search across platforms like Cars24, CarDekho, OLX, Spinny, etc.
-List 10-12 specific listings with source, year, km_driven, fuel_type, transmission, asking_price (INR as a number, e.g. 5.5 lakhs = 550000), listing_url.
-Also provide market_stats: min_price, max_price, avg_price, count of similar listings found.`;
+  const searchPrompt = `Find 10-12 used car listings for ${year} ${make} ${model} in Jaipur, India on Cars24, CarDekho, OLX, Spinny. List source, year, km driven, fuel type, transmission, asking price.`;
+  const searchResult = await geminiSearch(searchPrompt);
+  if (!searchResult) return { market_stats: null };
 
-  const response = await gemini(prompt, LISTING_SCHEMA) as { listings?: Record<string, unknown>[]; market_stats?: Record<string, number> };
+  const extractPrompt = `Based on these listings:
+"${searchResult.slice(0, 3000)}"
+Extract all listings and market stats. Asking prices in INR as plain numbers.`;
+
+  const response = await geminiExtract(extractPrompt, LISTING_SCHEMA) as { listings?: Record<string, unknown>[]; market_stats?: Record<string, number> };
   const listings = response.listings ?? [];
   const stats = response.market_stats ?? {};
 
@@ -202,13 +226,13 @@ Also provide market_stats: min_price, max_price, avg_price, count of similar lis
   }
 
   return {
-    min: stats.min_price,
-    max: stats.max_price,
-    avg: stats.avg_price,
-    count: stats.count || listings.length,
-    listings: listings.slice(0, 10).map(l => ({
-      source: l.source, year: l.year, km_driven: l.km_driven, asking_price: l.asking_price,
-    })),
+    market_stats: {
+      min: stats.min_price, max: stats.max_price, avg: stats.avg_price,
+      count: stats.count || listings.length,
+      listings: listings.slice(0, 10).map(l => ({
+        source: l.source, year: l.year, km_driven: l.km_driven, asking_price: l.asking_price,
+      })),
+    }
   };
 }
 
@@ -226,27 +250,19 @@ Deno.serve(async (req: Request) => {
     const { action, params } = body;
 
     let result;
-
-    if (action === 'scrape') {
-      result = await handleScrape(supabase);
-    } else if (action === 'fetchExShowroomPrice') {
-      result = await handleFetchExShowroomPrice(supabase, params);
-    } else if (action === 'fetchTargetedMarketData') {
-      result = await handleFetchTargetedMarketData(supabase, params);
-    } else {
-      return new Response(JSON.stringify({ error: 'Invalid action' }), {
-        status: 400,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
-    }
+    if (action === 'scrape') result = await handleScrape(supabase);
+    else if (action === 'fetchExShowroomPrice') result = await handleFetchExShowroomPrice(supabase, params);
+    else if (action === 'fetchTargetedMarketData') result = await handleFetchTargetedMarketData(supabase, params);
+    else return new Response(JSON.stringify({ error: 'Invalid action' }), {
+      status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+    });
 
     return new Response(JSON.stringify(result), {
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
     });
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error).message }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
     });
   }
 });
