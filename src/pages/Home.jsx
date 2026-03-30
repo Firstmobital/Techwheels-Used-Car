@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { CarEvaluation, CarListing, ScrapeLog, ConditionCheck } from "../api/entities";
 import { scrapeListings } from "../api/backendFunctions";
 import { supabase } from "../api/supabaseClient";
+import { useAuth } from "@/context/AuthContext";
 import { calculateFairValue, getMarketStats, getDecision } from "../utils/calculate";
 import ConditionManager from "../components/ConditionManager";
 import SourcesPage from "../components/SourcesPage";
@@ -120,11 +121,13 @@ function NavIcon({ path }) {
 //  ROOT
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Home() {
+  const { signOut } = useAuth();
   const [nav, setNav] = useState("dashboard");
   const [stats, setStats] = useState({ total:0, goodDeals:0, overpriced:0, listings:0 });
   const [recentEvals, setRecentEvals] = useState([]);
   const [lastSync, setLastSync] = useState(null);
   const [scraping, setScraping] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState(null);
 
   useEffect(() => {
@@ -163,6 +166,18 @@ export default function Home() {
       setLastSync({ scrape_date: new Date().toISOString(), listings_saved: res.saved_to_db, status: res.saved_to_db>0?"Success":"Partial" });
     } catch(e) { setScrapeMsg({ error: e.message }); }
     setScraping(false);
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+
+    try {
+      await signOut();
+    } catch (error) {
+      setScrapeMsg({ error: error.message || "Unable to logout. Please try again." });
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   return (
@@ -211,10 +226,19 @@ export default function Home() {
           <div>
             <p className="font-semibold text-base">{NAV.find(n=>n.id===nav)?.label}</p>
           </div>
-          <button onClick={handleScrape} disabled={scraping}
-            className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium">
-            {scraping ? "Syncing…" : "Sync"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleScrape} disabled={scraping}
+              className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium">
+              {scraping ? "Syncing…" : "Sync"}
+            </button>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-60"
+            >
+              {loggingOut ? "Logging out…" : "Logout"}
+            </button>
+          </div>
         </header>
 
         {/* Desktop topbar */}
@@ -223,6 +247,13 @@ export default function Home() {
           <div className="flex items-center gap-2 text-xs text-gray-400">
             {lastSync && <span>Last sync: {new Date(lastSync.scrape_date).toLocaleDateString("en-IN")}</span>}
             <span className="bg-gray-100 px-2 py-1 rounded-md">Jaipur branch</span>
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              className="text-xs bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-md font-medium hover:bg-gray-50 disabled:opacity-60"
+            >
+              {loggingOut ? "Logging out..." : "Logout"}
+            </button>
           </div>
         </header>
 
