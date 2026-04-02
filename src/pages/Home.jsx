@@ -109,15 +109,15 @@ function buildWhatsAppMessage(ev, conditions) {
   });
 
   const condLine = [
-    goodConds.length > 0 ? `✅ ${goodConds.join(", ")}` : "",
-    badConds.length > 0 ? `❌ ${badConds.join(", ")}` : "",
+    goodConds.length > 0 ? `Good: ${goodConds.join(", ")}` : "",
+    badConds.length > 0 ? `Bad: ${badConds.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
   return `🚗 *Used Car Evaluation Report*
-📅 Date: ${date}
-🏢 Branch: ${ev.branch || "—"}
-👤 Evaluator: ${ev.evaluator_name || "—"}
-👔 Sales Person: ${ev.ca_name || "—"}
+Date: ${date}
+Branch: ${ev.branch || "—"}
+Evaluator: ${ev.evaluator_name || "—"}
+Sales Person: ${ev.ca_name || "—"}
 
 *Car Details*
 Reg No: ${ev.car_reg_no || "—"}
