@@ -108,30 +108,33 @@ function buildWhatsAppMessage(ev, conditions) {
     else goodConds.push(c.name);
   });
 
-  const condLine = [
-    goodConds.length > 0 ? `Good: ${goodConds.join(", ")}` : "",
-    badConds.length > 0 ? `Bad: ${badConds.join(", ")}` : "",
-  ].filter(Boolean).join("\n");
+  const goodLine = goodConds.length > 0 ? `✅ ${goodConds.join(", ")}` : "✅ -";
+  const badLine = badConds.length > 0 ? `❌ ${badConds.join(", ")}` : "❌ -";
+  const offered = ev.offered_price || ev.suggested_purchase_price;
+  const offeredText = offered ? `₹${Number(offered).toLocaleString("en-IN")}` : "—";
+  const ownerText = ev.num_owners === 1 ? "1st" : ev.num_owners === 2 ? "2nd" : ev.num_owners === 3 ? "3rd" : `${ev.num_owners || "—"}th`;
+  const carTitle = `${ev.make || ""} ${ev.model || ""}`.trim() || "—";
 
-  return ` *Used Car Evaluation Report*
- Date: ${date}
- Branch: ${ev.branch || "—"}
- Evaluator: ${ev.evaluator_name || "—"}
- Sales Person: ${ev.ca_name || "—"}
+  return `🚗 Used Car Evaluation Report
+📅 Date: ${date}
+🏢 Branch: ${ev.branch || "—"}
+👤 Evaluator: ${ev.evaluator_name || "—"}
+👔 Sales Person: ${ev.ca_name || "—"}
 
-*Car Details*
+Car Details
 Reg No: ${ev.car_reg_no || "—"}
-${ev.make || ""} ${ev.model || ""}${ev.variant ? ` (${ev.variant})` : ""}
+${carTitle}${ev.variant ? ` (${ev.variant})` : ""}
 Year: ${ev.year || "—"} | Fuel: ${ev.fuel_type || "—"}
 KM: ${ev.km_driven ? Number(ev.km_driven).toLocaleString("en-IN") : "—"} | Colour: ${ev.colour || "—"}
-Owners: ${ev.num_owners === 1 ? "1st" : ev.num_owners === 2 ? "2nd" : ev.num_owners === 3 ? "3rd" : `${ev.num_owners}th`} owner
+Owners: ${ownerText} owner
 
-*Condition Checks*
-${condLine || "—"}
+Conditions
+${goodLine}
+${badLine}
 
-*Our Offered Price: ${formatINR(ev.offered_price || ev.suggested_purchase_price)}*
+Our Offered Price: ${offeredText}
 
-_Techwheels Used Cars, ${ev.branch || "Jaipur"}_`;
+Techwheels Used Cars, ${ev.branch || "Jaipur"}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -228,6 +231,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
       {/* Desktop sidebar */}
+      {isUsedCarDept && (
       <aside className="hidden lg:flex flex-col w-56 bg-white border-r border-gray-100 shrink-0 h-screen sticky top-0">
         <div className="px-4 py-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
@@ -272,6 +276,7 @@ export default function Home() {
           </div>
         )}
       </aside>
+      )}
 
       <div className="flex-1 flex flex-col min-h-screen lg:min-h-0">
         {/* Mobile topbar */}
@@ -329,6 +334,7 @@ export default function Home() {
         </main>
 
         {/* Mobile bottom nav */}
+        {isUsedCarDept && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex z-50">
           {NAV.map(n=>(
             <button key={n.id} onClick={()=>setNav(n.id)}
@@ -341,6 +347,7 @@ export default function Home() {
             </button>
           ))}
         </nav>
+        )}
       </div>
     </div>
   );
@@ -526,11 +533,12 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
         if (!error && data) {
           applyRTO(data);
         } else {
-          // Fallback: partial match without dashes
+          // Fallback: fuzzy match tolerant of dashes/spaces in stored value
+          const fuzzyPattern = `%${cleaned.split("").join("%")}%`;
           const { data: data2 } = await supabase
             .from("all_rto_data")
             .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-            .ilike("Registration No.", `%${cleaned}%`)
+            .ilike("Registration No.", fuzzyPattern)
             .maybeSingle();
           if (data2) applyRTO(data2);
         }
@@ -1219,6 +1227,7 @@ function HistoryPage({ onEditEval }) {
 
   // WhatsApp modal
   const [waModal, setWaModal] = useState(null);
+  const [editEvalModal, setEditEvalModal] = useState(null);
 
   const loadEvals = () => {
     Promise.all([
@@ -1269,6 +1278,14 @@ function HistoryPage({ onEditEval }) {
   };
 
   const openWaModal = (ev) => setWaModal(ev);
+
+  const openEditEvalModal = (ev) => setEditEvalModal(ev);
+
+  const confirmOpenEditEval = () => {
+    if (!editEvalModal) return;
+    onEditEval(editEvalModal);
+    setEditEvalModal(null);
+  };
 
   const sendWhatsApp = (ev) => {
     const mobile = ev.customer_mobile?.replace(/\D/g,"");
@@ -1349,7 +1366,7 @@ function HistoryPage({ onEditEval }) {
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         <button onClick={()=>openPriceModal(ev)} className="flex-1 py-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50">Edit prices</button>
-                        <button onClick={()=>onEditEval(ev)} className="flex-1 py-2 rounded-lg border border-blue-200 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100">Edit evaluation</button>
+                        <button onClick={()=>openEditEvalModal(ev)} className="flex-1 py-2 rounded-lg border border-blue-200 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100">Edit evaluation</button>
                         <button onClick={()=>openWaModal(ev)} className="flex-1 py-2 rounded-lg border border-green-200 text-xs text-green-700 bg-green-50 hover:bg-green-100">WhatsApp</button>
                       </div>
                     </div>
@@ -1392,7 +1409,7 @@ function HistoryPage({ onEditEval }) {
                           <div className="flex gap-1.5">
                             <button onClick={()=>openPriceModal(ev)}
                               className="text-xs border border-gray-200 hover:bg-gray-50 text-gray-600 px-2 py-1 rounded-lg">Edit prices</button>
-                            <button onClick={()=>onEditEval(ev)}
+                            <button onClick={()=>openEditEvalModal(ev)}
                               className="text-xs border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-lg">Edit eval</button>
                             <button onClick={()=>openWaModal(ev)}
                               className="text-xs border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 px-2 py-1 rounded-lg">WA</button>
@@ -1472,6 +1489,38 @@ function HistoryPage({ onEditEval }) {
                 Open WhatsApp
               </button>
               <button onClick={()=>setWaModal(null)} className="px-5 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit evaluation confirmation modal */}
+      {editEvalModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={()=>setEditEvalModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-gray-900">Edit full evaluation</h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  This will open the full 5-step evaluate form with saved details pre-filled.
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Saving there will update this same history record (no duplicate).
+                </p>
+              </div>
+              <button onClick={()=>setEditEvalModal(null)} className="text-gray-400 hover:text-gray-600 ml-4 text-xl">×</button>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-4">
+              <p className="text-xs text-blue-700">
+                {editEvalModal.make} {editEvalModal.model} {editEvalModal.variant ? `(${editEvalModal.variant})` : ""} · {editEvalModal.car_reg_no || "—"}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={confirmOpenEditEval}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl">
+                Open full form
+              </button>
+              <button onClick={()=>setEditEvalModal(null)} className="px-5 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             </div>
           </div>
         </div>
