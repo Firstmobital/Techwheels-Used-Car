@@ -1,23 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { fetchAllBrands, fetchModelsByBrand, addCustomBrand, addCustomModel } from '@/api/backendFunctions';
 
+const inputStyle = "w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-gray-900";
+
 /**
  * BrandCombobox
- * Searchable dropdown for selecting car brands.
- * Shows all predefined brands + custom brands from database.
- * Allows adding new custom brands.
+ * Toggle between dropdown selection and manual text input
  */
-export function BrandCombobox({ value, onChange, placeholder = 'Search or add brand...' }) {
+export function BrandCombobox({ value, onChange, placeholder = 'Enter brand name' }) {
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [useManual, setUseManual] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState(value || '');
 
-  useEffect(() => {
-    setDraft(value || '');
-  }, [value]);
-
-  // Fetch all brands on mount
   useEffect(() => {
     const loadBrands = async () => {
       setLoading(true);
@@ -33,19 +28,14 @@ export function BrandCombobox({ value, onChange, placeholder = 'Search or add br
     loadBrands();
   }, []);
 
-  const normalizedDraft = draft.trim();
-  const isNewBrand =
-    normalizedDraft &&
-    !brands.some(b => b.toLowerCase() === normalizedDraft.toLowerCase());
+  const isNewBrand = value && !brands.some(b => b.toLowerCase() === value.toLowerCase());
 
   const handleAddBrand = async () => {
-    if (!normalizedDraft) return;
+    if (!value.trim()) return;
     setAdding(true);
     try {
-      const newBrand = await addCustomBrand(normalizedDraft);
+      const newBrand = await addCustomBrand(value.trim());
       setBrands(prev => [...new Set([...prev, newBrand])].sort());
-      onChange(newBrand);
-      setDraft(newBrand);
     } catch (error) {
       console.error('Failed to add brand:', error);
     } finally {
@@ -54,79 +44,78 @@ export function BrandCombobox({ value, onChange, placeholder = 'Search or add br
   };
 
   return (
-    <div className="space-y-1.5">
-      <select
-        className="w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-gray-900"
-        value={value || ''}
-        onChange={e => {
-          onChange(e.target.value);
-          setDraft(e.target.value);
-        }}
-        disabled={loading}
-      >
-        <option value="">{loading ? 'Loading brands...' : 'Select brand'}</option>
-        {brands.map(brand => (
-          <option key={brand} value={brand}>{brand}</option>
-        ))}
-      </select>
-
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={e => {
-            setDraft(e.target.value);
-            onChange(e.target.value);
-          }}
-          placeholder={placeholder}
-          className="w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-gray-900"
-          list="brand-options"
-        />
-        {isNewBrand && (
+    <div className="space-y-1">
+      {!useManual ? (
+        <div className="flex items-center gap-2">
+          <select
+            className={inputStyle}
+            value={value || ''}
+            onChange={e => {
+              onChange(e.target.value);
+              setUseManual(false);
+            }}
+            disabled={loading}
+          >
+            <option value="">{loading ? 'Loading...' : 'Select brand'}</option>
+            {brands.map(brand => (
+              <option key={brand} value={brand}>{brand}</option>
+            ))}
+          </select>
           <button
             type="button"
-            onClick={handleAddBrand}
-            disabled={adding}
-            className="h-11 lg:h-9 px-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+            onClick={() => setUseManual(true)}
+            className="text-orange-500 hover:text-orange-600 text-xs font-medium whitespace-nowrap"
           >
-            {adding ? 'Adding...' : 'Add'}
+            Type manually
           </button>
-        )}
-      </div>
-
-      <datalist id="brand-options">
-        {brands.map(brand => (
-          <option key={brand} value={brand} />
-        ))}
-      </datalist>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+            className={inputStyle}
+          />
+          <button
+            type="button"
+            onClick={() => setUseManual(false)}
+            className="text-orange-500 hover:text-orange-600 text-xs font-medium whitespace-nowrap"
+          >
+            Pick from list
+          </button>
+          {isNewBrand && (
+            <button
+              type="button"
+              onClick={handleAddBrand}
+              disabled={adding}
+              className="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+            >
+              {adding ? 'Adding...' : 'Add'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
  * ModelCombobox
- * Searchable dropdown for selecting car models within a brand.
- * Shows predefined + custom models for the selected brand.
- * Allows adding new custom models.
- * Includes fallback text input for manual entry if needed.
+ * Toggle between dropdown selection and manual text input
  */
 export function ModelCombobox({
   brand,
   value,
   onChange,
-  placeholder = 'Search or add model...',
-  allowCustomInput = true,
+  placeholder = 'Enter model name',
 }) {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [useManual, setUseManual] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState(value || '');
 
-  useEffect(() => {
-    setDraft(value || '');
-  }, [value]);
-
-  // Fetch models for the brand whenever brand changes
   useEffect(() => {
     if (!brand) {
       setModels([]);
@@ -139,9 +128,11 @@ export function ModelCombobox({
       try {
         const brandModels = await fetchModelsByBrand(brand);
         setModels(brandModels);
+        if (brandModels.length === 0) setUseManual(true);
       } catch (error) {
         console.error(`Failed to load models for brand ${brand}:`, error);
         setModels([]);
+        setUseManual(true);
       } finally {
         setLoading(false);
       }
@@ -150,19 +141,14 @@ export function ModelCombobox({
     loadModels();
   }, [brand]);
 
-  const normalizedDraft = draft.trim();
-  const isNewModel =
-    normalizedDraft &&
-    !models.some(m => m.toLowerCase() === normalizedDraft.toLowerCase());
+  const isNewModel = value && !models.some(m => m.toLowerCase() === value.toLowerCase());
 
   const handleAddModel = async () => {
-    if (!normalizedDraft || !brand) return;
+    if (!value.trim() || !brand) return;
     setAdding(true);
     try {
-      const newModel = await addCustomModel(brand, normalizedDraft);
+      const newModel = await addCustomModel(brand, value.trim());
       setModels(prev => [...new Set([...prev, newModel])].sort());
-      onChange(newModel);
-      setDraft(newModel);
     } catch (error) {
       console.error('Failed to add model:', error);
     } finally {
@@ -176,62 +162,66 @@ export function ModelCombobox({
         type="text"
         disabled
         placeholder="Select a brand first"
-        className="w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs bg-gray-50 text-gray-400 cursor-not-allowed"
+        className={`${inputStyle} bg-gray-50 text-gray-400 cursor-not-allowed`}
       />
     );
   }
 
   return (
-    <div className="space-y-1.5">
-      <select
-        className="w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-gray-900"
-        value={value || ''}
-        onChange={e => {
-          onChange(e.target.value);
-          setDraft(e.target.value);
-        }}
-        disabled={loading}
-      >
-        <option value="">{loading ? 'Loading models...' : 'Select model'}</option>
-        {models.map(model => (
-          <option key={model} value={model}>{model}</option>
-        ))}
-      </select>
-
-      {allowCustomInput && (
-        <div className="flex gap-2">
+    <div className="space-y-1">
+      {!useManual ? (
+        <div className="flex items-center gap-2">
+          <select
+            className={inputStyle}
+            value={value || ''}
+            onChange={e => {
+              onChange(e.target.value);
+              setUseManual(false);
+            }}
+            disabled={loading}
+          >
+            <option value="">{loading ? 'Loading...' : 'Select model'}</option>
+            {models.map(model => (
+              <option key={model} value={model}>{model}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setUseManual(true)}
+            className="text-orange-500 hover:text-orange-600 text-xs font-medium whitespace-nowrap"
+          >
+            Type manually
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
           <input
             type="text"
-            value={draft}
-            onChange={e => {
-              setDraft(e.target.value);
-              onChange(e.target.value);
-            }}
+            value={value || ''}
+            onChange={e => onChange(e.target.value)}
             placeholder={placeholder}
-            className="w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 text-sm lg:text-xs focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white text-gray-900"
-            list="model-options"
+            className={inputStyle}
           />
+          {models.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setUseManual(false)}
+              className="text-orange-500 hover:text-orange-600 text-xs font-medium whitespace-nowrap"
+            >
+              Pick from list
+            </button>
+          )}
           {isNewModel && (
             <button
               type="button"
               onClick={handleAddModel}
               disabled={adding}
-              className="h-11 lg:h-9 px-3 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
+              className="px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-medium whitespace-nowrap disabled:opacity-50"
             >
               {adding ? 'Adding...' : 'Add'}
             </button>
           )}
         </div>
-      )}
-
-      <datalist id="model-options">
-        {models.map(model => (
-          <option key={model} value={model} />
-        ))}
-      </datalist>
-
-      {!loading && models.length === 0 && (
-        <p className="text-xs text-gray-400">No preset models found for this brand. You can type one manually.</p>
       )}
     </div>
   );
