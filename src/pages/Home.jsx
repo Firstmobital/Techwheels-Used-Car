@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { CarEvaluation, CarListing, ScrapeLog, ConditionCheck } from "../api/entities";
 import { scrapeListings } from "../api/backendFunctions";
 import { supabase } from "../api/supabaseClient";
@@ -113,11 +113,11 @@ function buildWhatsAppMessage(ev, conditions) {
     badConds.length > 0 ? `Bad: ${badConds.join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
-  return `🚗 *Used Car Evaluation Report*
-Date: ${date}
-Branch: ${ev.branch || "—"}
-Evaluator: ${ev.evaluator_name || "—"}
-Sales Person: ${ev.ca_name || "—"}
+  return ` *Used Car Evaluation Report*
+ Date: ${date}
+ Branch: ${ev.branch || "—"}
+ Evaluator: ${ev.evaluator_name || "—"}
+ Sales Person: ${ev.ca_name || "—"}
 
 *Car Details*
 Reg No: ${ev.car_reg_no || "—"}
@@ -465,6 +465,8 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
   const [rtoFound, setRtoFound] = useState(false);
   // rtoFields tracks which fields came from RTO (for UI highlighting)
   const [rtoFields, setRtoFields] = useState({});
+  // Debounce timer for RTO lookup
+  const rtoDebounceRef = useRef(null);
 
   const [sections, setSections] = useState(() => {
     if (editEvalData) return { s1:"done", s2:"done", s3:"done", s4:"open", s5:"open" };
@@ -491,49 +493,52 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
       }
     });
 
-    supabase.from("locations").select("name").then(({ data }) => {
-      if (data) setBranches(data.map(r=>r.name));
+    // Fetch locations and employees in parallel for speed
+    Promise.all([
+      supabase.from("locations").select("name"),
+      supabase.from("employees").select("first_name,last_name").eq("employee_status","active"),
+    ]).then(([{ data: locs }, { data: emps }]) => {
+      if (locs) setBranches(locs.map(r=>r.name));
+      if (emps) {
+        const names = emps.map(e=>`${e.first_name} ${e.last_name}`.trim()).filter(Boolean);
+        setCaNames(names);
+        setEvaluatorNames(names);
+      }
     });
-
-    supabase.from("employees").select("first_name,last_name")
-      .eq("employee_status","active")
-      .then(({ data }) => {
-        if (data) {
-          const names = data.map(e=>`${e.first_name} ${e.last_name}`.trim()).filter(Boolean);
-          setCaNames(names);
-          setEvaluatorNames(names);
-        }
-      });
   }, []);
 
-  // RTO lookup when reg number is entered
-  const lookupRTO = useCallback(async (regNo) => {
+  // RTO lookup — debounced 600ms, fires once when reg number is complete
+  const lookupRTO = useCallback((regNo) => {
+    // Clear any pending lookup
+    if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
     const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
     if (cleaned.length < 9) return;
-    setRtoLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from("all_rto_data")
-        .select("*")
-        .eq("Registration No.", regNo)
-        .maybeSingle();
-
-      if (error || !data) {
-        // try without dashes
-        const { data: data2 } = await supabase
+    rtoDebounceRef.current = setTimeout(async () => {
+      setRtoLoading(true);
+      try {
+        // Try exact match first (fastest)
+        const { data, error } = await supabase
           .from("all_rto_data")
-          .select("*")
-          .ilike("Registration No.", `%${cleaned.slice(0,4)}%${cleaned.slice(4)}%`)
+          .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+          .eq("Registration No.", regNo)
           .maybeSingle();
-        if (!data2) { setRtoLoading(false); return; }
-        applyRTO(data2);
-      } else {
-        applyRTO(data);
+
+        if (!error && data) {
+          applyRTO(data);
+        } else {
+          // Fallback: partial match without dashes
+          const { data: data2 } = await supabase
+            .from("all_rto_data")
+            .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+            .ilike("Registration No.", `%${cleaned}%`)
+            .maybeSingle();
+          if (data2) applyRTO(data2);
+        }
+      } catch(e) {
+        console.warn("RTO lookup failed:", e.message);
       }
-    } catch(e) {
-      console.warn("RTO lookup failed:", e.message);
-    }
-    setRtoLoading(false);
+      setRtoLoading(false);
+    }, 600);
   }, [form.customer_name, form.customer_mobile]);
 
   const applyRTO = (data) => {
@@ -876,7 +881,9 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
                         if(v.length>7)v=v.slice(0,7)+"-"+v.slice(7);
                         if(v.length>12)v=v.slice(0,12);
                         set("car_reg_no",v);
-                        if(v.replace(/-/g,"").length>=9) lookupRTO(v);
+                        // Only trigger lookup when clean length is exactly 9-11 chars
+                        const cleanLen = v.replace(/-/g,"").length;
+                        if(cleanLen >= 9 && cleanLen <= 11) lookupRTO(v);
                       }}
                       placeholder="RJ14-UB-3469" maxLength={12}/>
                     {rtoLoading && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500">Looking up…</span>}
