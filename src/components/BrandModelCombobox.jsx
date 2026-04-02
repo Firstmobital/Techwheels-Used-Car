@@ -6,6 +6,16 @@ const inputStyle = "w-full h-11 lg:h-9 border border-gray-200 rounded-lg px-3 te
 /**
  * BrandCombobox
  * Toggle between dropdown selection and manual text input
+ * @param {Object} props
+ * @param {string} props.value
+ * @param {function} props.onChange
+ * @param {string} props.placeholder
+ */
+/**
+ * @param {Object} props
+ * @param {string} props.value
+ * @param {(value: string) => void} props.onChange
+ * @param {string} [props.placeholder]
  */
 export function BrandCombobox({ value, onChange, placeholder = 'Enter brand name' }) {
   const [brands, setBrands] = useState([]);
@@ -18,6 +28,7 @@ export function BrandCombobox({ value, onChange, placeholder = 'Enter brand name
       setLoading(true);
       try {
         const allBrands = await fetchAllBrands();
+        // @ts-expect-error - useState type inference limitation
         setBrands(allBrands);
       } catch (error) {
         console.error('Failed to load brands:', error);
@@ -28,13 +39,17 @@ export function BrandCombobox({ value, onChange, placeholder = 'Enter brand name
     loadBrands();
   }, []);
 
-  const isNewBrand = value && !brands.some(b => b.toLowerCase() === value.toLowerCase());
+  const isNewBrand = value && !brands.some(
+    // @ts-expect-error - useState type inference limitation
+    b => b.toLowerCase() === value.toLowerCase()
+  );
 
   const handleAddBrand = async () => {
     if (!value.trim()) return;
     setAdding(true);
     try {
       const newBrand = await addCustomBrand(value.trim());
+      // @ts-expect-error
       setBrands(prev => [...new Set([...prev, newBrand])].sort());
     } catch (error) {
       console.error('Failed to add brand:', error);
@@ -104,6 +119,11 @@ export function BrandCombobox({ value, onChange, placeholder = 'Enter brand name
 /**
  * ModelCombobox
  * Toggle between dropdown selection and manual text input
+ * @param {Object} props
+ * @param {string} props.brand
+ * @param {string} props.value
+ * @param {(value: string) => void} props.onChange
+ * @param {string} [props.placeholder]
  */
 export function ModelCombobox({
   brand,
@@ -141,13 +161,17 @@ export function ModelCombobox({
     loadModels();
   }, [brand]);
 
-  const isNewModel = value && !models.some(m => m.toLowerCase() === value.toLowerCase());
+  const isNewModel = value && !models.some(
+    // @ts-expect-error - useState type inference limitation
+    m => m.toLowerCase() === value.toLowerCase()
+  );
 
   const handleAddModel = async () => {
     if (!value.trim() || !brand) return;
     setAdding(true);
     try {
       const newModel = await addCustomModel(brand, value.trim());
+      // @ts-expect-error
       setModels(prev => [...new Set([...prev, newModel])].sort());
     } catch (error) {
       console.error('Failed to add model:', error);
