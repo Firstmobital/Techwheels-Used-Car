@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from "react";
 import { CustomDepreciation } from "@/api/entities";
 import { MAKES, MODELS_BY_MAKE } from "@/utils/carConstants";

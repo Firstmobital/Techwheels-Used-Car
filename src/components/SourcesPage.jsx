@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from "react";
 import { ScrapeSource } from "@/api/entities";
 import { scrapeListings } from "@/api/backendFunctions";

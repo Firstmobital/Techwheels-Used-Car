@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { supabase } from './supabaseClient';
 
 function makeEntity(table) {

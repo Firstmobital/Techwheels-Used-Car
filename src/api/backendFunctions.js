@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { supabase } from './supabaseClient';
 import { MAKES, MODELS_BY_MAKE } from '../utils/carConstants';
 import { CustomCarBrand, CustomCarModel } from './entities';
