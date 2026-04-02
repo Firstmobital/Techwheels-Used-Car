@@ -8,26 +8,10 @@ import ConditionManager from "../components/ConditionManager";
 import SourcesPage from "../components/SourcesPage";
 import ExShowroomPriceManager from "../components/ExShowroomPriceManager";
 import DepreciationManager from "../components/DepreciationManager";
+import ModelSelector from "../components/ui/model-selector";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAKES = ["Maruti","Hyundai","Tata","Honda","Kia","Toyota","Renault","Nissan","MG","Skoda","Volkswagen","Ford","Chevrolet","Mahindra","Other"];
-const MODELS_BY_MAKE = {
-  Maruti:["Swift","Alto","Baleno","Dzire","Vitara Brezza","Ertiga","WagonR","Celerio","Ignis","S-Cross","XL6"],
-  Hyundai:["i20","Creta","Verna","Grand i10","Venue","Tucson","Santro","Aura","Alcazar","i10"],
-  Tata:["Nexon","Altroz","Harrier","Safari","Tiago","Tigor","Punch","Indica"],
-  Honda:["City","Amaze","Jazz","WR-V","BR-V","Civic","CR-V"],
-  Kia:["Seltos","Sonet","Carnival","Carens"],
-  Toyota:["Innova","Fortuner","Glanza","Urban Cruiser","Camry","Corolla"],
-  Renault:["Kwid","Triber","Duster","Kiger"],
-  Nissan:["Magnite","Kicks","Micra","Terrano"],
-  MG:["Hector","Astor","ZS EV","Gloster"],
-  Skoda:["Rapid","Kushaq","Slavia","Octavia","Superb"],
-  Volkswagen:["Polo","Vento","Taigun","Virtus","Tiguan"],
-  Ford:["Figo","Aspire","EcoSport","Endeavour","Freestyle"],
-  Chevrolet:["Beat","Cruze","Spark","Enjoy"],
-  Mahindra:["XUV300","XUV500","XUV700","Scorpio","Bolero","Thar","KUV100"],
-  Other:[],
-};
 const COLORS=["White","Silver","Grey","Black","Red","Blue","Brown","Beige","Orange","Other"];
 const YEARS=Array.from({length:22},(_,i)=>new Date().getFullYear()-i);
 const LEAD_STATUSES=["Pending","Deal Done","Cancelled","No Deal"];
@@ -384,7 +368,6 @@ function EvaluatePage() {
   };
 
   const [form, setForm] = useState(emptyForm);
-  const [manualModel, setManualModel] = useState(false);
   const [conditions, setConditions] = useState([]);
   const [condChecks, setCondChecks] = useState({});
   const [result, setResult] = useState(null);
@@ -435,7 +418,7 @@ function EvaluatePage() {
   const set = (field, value) => {
     setForm(f => {
       const u = { ...f, [field]:value };
-      if (field==="make") { u.model = MODELS_BY_MAKE[value]?.[0]||""; setManualModel(false); }
+      if (field==="make") { u.model = ""; }
       return u;
     });
     setResult(null); setSaved(false);
@@ -587,12 +570,12 @@ function EvaluatePage() {
                 </select>
               </Field>
               <Field label="Model">
-                {MODELS_BY_MAKE[form.make]?.length>0 && !manualModel
-                  ? <select className={sel} value={form.model} onChange={e=>set("model",e.target.value)}>
-                      {MODELS_BY_MAKE[form.make].map(m=><option key={m}>{m}</option>)}
-                    </select>
-                  : <input className={inp} value={form.model} onChange={e=>set("model",e.target.value)} placeholder="Model name"/>
-                }
+                <ModelSelector
+                  make={form.make}
+                  model={form.model}
+                  onChange={value => set("model", value)}
+                  placeholder="e.g. Swift"
+                />
               </Field>
               <Field label="Variant">
                 <input className={inp} value={form.variant} onChange={e=>set("variant",e.target.value)} placeholder="e.g. ZXI+"/>

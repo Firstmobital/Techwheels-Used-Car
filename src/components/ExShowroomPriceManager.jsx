@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { ExShowroomPrice } from "@/api/entities";
+import ModelSelector from "./ui/model-selector";
 
 const MAKES = ["Maruti", "Hyundai", "Tata", "Honda", "Kia", "Toyota", "Renault", "Nissan", "MG", "Skoda", "Volkswagen", "Ford", "Chevrolet", "Mahindra", "Other"];
 
@@ -150,14 +151,18 @@ export default function ExShowroomPriceManager() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Make *</label>
-              <select value={form.make} onChange={e => setForm(f => ({ ...f, make: e.target.value }))} className={inp}>
+              <select value={form.make} onChange={e => setForm(f => ({ ...f, make: e.target.value, model: "" }))} className={inp}>
                 {MAKES.map(m => <option key={m}>{m}</option>)}
               </select>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Model *</label>
-              <input value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-                placeholder="e.g. Swift" className={inp} />
+              <ModelSelector
+                make={form.make}
+                model={form.model}
+                onChange={value => setForm(f => ({ ...f, model: value }))}
+                placeholder="e.g. Swift"
+              />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Variant (optional)</label>

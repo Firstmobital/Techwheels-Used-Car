@@ -1,24 +1,8 @@
 import { useState, useEffect } from "react";
 import { CustomDepreciation } from "@/api/entities";
+import ModelSelector from "./ui/model-selector";
 
 const MAKES = ["Maruti", "Hyundai", "Tata", "Honda", "Kia", "Toyota", "Renault", "Nissan", "MG", "Skoda", "Volkswagen", "Ford", "Chevrolet", "Mahindra", "Other"];
-const MODELS_BY_MAKE = {
-  Maruti: ["Swift", "Alto", "Baleno", "Dzire", "Vitara Brezza", "Ertiga", "WagonR", "Celerio", "Ignis", "S-Cross", "XL6"],
-  Hyundai: ["i20", "Creta", "Verna", "Grand i10", "Venue", "Tucson", "Santro", "Aura", "Alcazar", "i10"],
-  Tata: ["Nexon", "Altroz", "Harrier", "Safari", "Tiago", "Tigor", "Punch", "Indica"],
-  Honda: ["City", "Amaze", "Jazz", "WR-V", "BR-V", "Civic", "CR-V"],
-  Kia: ["Seltos", "Sonet", "Carnival", "Carens"],
-  Toyota: ["Innova", "Fortuner", "Glanza", "Urban Cruiser", "Camry", "Corolla"],
-  Renault: ["Kwid", "Triber", "Duster", "Kiger"],
-  Nissan: ["Magnite", "Kicks", "Micra", "Terrano"],
-  MG: ["Hector", "Astor", "ZS EV", "Gloster"],
-  Skoda: ["Rapid", "Kushaq", "Slavia", "Octavia", "Superb"],
-  Volkswagen: ["Polo", "Vento", "Taigun", "Virtus", "Tiguan"],
-  Ford: ["Figo", "Aspire", "EcoSport", "Endeavour", "Freestyle"],
-  Chevrolet: ["Beat", "Cruze", "Spark", "Enjoy"],
-  Mahindra: ["XUV300", "XUV500", "XUV700", "Scorpio", "Bolero", "Thar", "KUV100"],
-  Other: [],
-};
 
 const inp = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400";
 
@@ -141,23 +125,13 @@ export default function DepreciationManager() {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Model (optional)</label>
-              {MODELS_BY_MAKE[form.make]?.length > 0 ? (
-                <select
-                  value={form.model}
-                  onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-                  className={inp}
-                >
-                  <option value="">All Models</option>
-                  {MODELS_BY_MAKE[form.make].map(m => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={form.model}
-                  onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-                  placeholder="Custom model"
-                  className={inp}
+              <ModelSelector
+                make={form.make}
+                model={form.model}
+                onChange={value => setForm(f => ({ ...f, model: value }))}
+                placeholder="Custom model"
+              />
+            </div>
                 />
               )}
             </div>
