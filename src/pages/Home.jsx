@@ -295,22 +295,6 @@ function DashboardPage({ stats, recentEvals, lastSync }) {
         ))}
       </div>
 
-      {/* Market sync status */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4">
-        <p className="text-sm font-medium text-gray-900 mb-2">Market data status</p>
-        {lastSync ? (
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className={`w-2 h-2 rounded-full ${lastSync.status==="Success" ? "bg-green-400" : "bg-amber-400"}`}/>
-            <span className="text-gray-600">Last synced: <strong>{new Date(lastSync.scrape_date).toLocaleString("en-IN")}</strong></span>
-            <span className="text-gray-400">·</span>
-            <span className="text-gray-600">{lastSync.listings_saved} listings saved</span>
-            <Badge label={lastSync.status} className={lastSync.status==="Success" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}/>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500">No market data yet. Tap <strong>Sync</strong> to fetch live listings.</p>
-        )}
-      </div>
-
       {/* Recent evaluations */}
       {recentEvals.length>0 && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
