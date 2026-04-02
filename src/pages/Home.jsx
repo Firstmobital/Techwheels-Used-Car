@@ -970,7 +970,7 @@ function HistoryPage() {
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-base font-semibold text-green-700">{formatINR(ev.suggested_purchase_price)}</p>
-                        <Badge label={ev.decision||"Pending"} className={`mt-0.5 ${dm.badge}`}/>
+                        <Badge label={ls} className={`mt-0.5 ${leadMeta[ls]}`}/>
                       </div>
                     </div>
                   </button>
@@ -983,7 +983,11 @@ function HistoryPage() {
                         <div><span className="text-gray-400">Fuel</span><p className="font-medium">{ev.fuel_type}</p></div>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400 mb-1.5">Lead status</p>
+                        <p className="text-xs text-gray-400 mb-1.5">Deal quality</p>
+                        <div className="mb-2">
+                          <Badge label={ev.decision||"Pending"} className={dm.badge}/>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-1.5">Update lead status</p>
                         <div className="flex flex-wrap gap-1.5">
                           {LEAD_STATUSES.map(s=>(
                             <button key={s} onClick={()=>updateStatus(ev.id,s)}
