@@ -991,6 +991,23 @@ function HistoryPage() {
                           ))}
                         </div>
                       </div>
+                      <button
+                        onClick={()=>{
+                          setEditModal(ev);
+                          setEditFields({
+                            customer_name: ev.customer_name||"",
+                            customer_mobile: ev.customer_mobile||"",
+                            car_reg_no: ev.car_reg_no||"",
+                            seller_asking_price: ev.seller_asking_price||"",
+                            offered_price: ev.offered_price||"",
+                            notes: ev.notes||"",
+                          });
+                          setEditMode(true);
+                        }}
+                        className="w-full py-2 rounded-lg border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        Edit details
+                      </button>
                       {ev.notes && <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">{ev.notes}</p>}
                     </div>
                   )}
