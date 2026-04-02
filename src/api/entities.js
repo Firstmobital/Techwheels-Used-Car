@@ -40,3 +40,5 @@ export const ConditionCheck = makeEntity('used_car_condition_checks');
 export const ScrapeSource = makeEntity('used_car_scrape_sources');
 export const ExShowroomPrice = makeEntity('used_car_ex_showroom_prices');
 export const CustomDepreciation = makeEntity('used_car_custom_depreciation');
+export const CustomCarBrand = makeEntity('custom_car_brands');
+export const CustomCarModel = makeEntity('custom_car_models');

@@ -4,33 +4,13 @@ import { scrapeListings } from "../api/backendFunctions";
 import { supabase } from "../api/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
 import { calculateFairValue, getMarketStats, getDecision } from "../utils/calculate";
+import { COLORS, YEARS, LEAD_STATUSES, MODELS_BY_MAKE } from "../utils/carConstants";
+import { BrandCombobox, ModelCombobox } from "../components/BrandModelCombobox";
 import ConditionManager from "../components/ConditionManager";
 import SourcesPage from "../components/SourcesPage";
 import ExShowroomPriceManager from "../components/ExShowroomPriceManager";
 import DepreciationManager from "../components/DepreciationManager";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const MAKES = ["Maruti","Hyundai","Tata","Honda","Kia","Toyota","Renault","Nissan","MG","Skoda","Volkswagen","Ford","Chevrolet","Mahindra","Other"];
-const MODELS_BY_MAKE = {
-  Maruti:["Swift","Alto","Baleno","Dzire","Vitara Brezza","Ertiga","WagonR","Celerio","Ignis","S-Cross","XL6"],
-  Hyundai:["i20","Creta","Verna","Grand i10","Venue","Tucson","Santro","Aura","Alcazar","i10"],
-  Tata:["Nexon","Altroz","Harrier","Safari","Tiago","Tigor","Punch","Indica"],
-  Honda:["City","Amaze","Jazz","WR-V","BR-V","Civic","CR-V"],
-  Kia:["Seltos","Sonet","Carnival","Carens"],
-  Toyota:["Innova","Fortuner","Glanza","Urban Cruiser","Camry","Corolla"],
-  Renault:["Kwid","Triber","Duster","Kiger"],
-  Nissan:["Magnite","Kicks","Micra","Terrano"],
-  MG:["Hector","Astor","ZS EV","Gloster"],
-  Skoda:["Rapid","Kushaq","Slavia","Octavia","Superb"],
-  Volkswagen:["Polo","Vento","Taigun","Virtus","Tiguan"],
-  Ford:["Figo","Aspire","EcoSport","Endeavour","Freestyle"],
-  Chevrolet:["Beat","Cruze","Spark","Enjoy"],
-  Mahindra:["XUV300","XUV500","XUV700","Scorpio","Bolero","Thar","KUV100"],
-  Other:[],
-};
-const COLORS=["White","Silver","Grey","Black","Red","Blue","Brown","Beige","Orange","Other"];
-const YEARS=Array.from({length:22},(_,i)=>new Date().getFullYear()-i);
-const LEAD_STATUSES=["Pending","Deal Done","Cancelled","No Deal"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatINR(amount) {
@@ -435,7 +415,7 @@ function EvaluatePage() {
   const set = (field, value) => {
     setForm(f => {
       const u = { ...f, [field]:value };
-      if (field==="make") { u.model = MODELS_BY_MAKE[value]?.[0]||""; setManualModel(false); }
+      if (field==="make") { u.model = ""; } // Reset model when make changes
       return u;
     });
     setResult(null); setSaved(false);
@@ -582,17 +562,10 @@ function EvaluatePage() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <Field label="Make">
-                <select className={sel} value={form.make} onChange={e=>set("make",e.target.value)}>
-                  {MAKES.map(m=><option key={m}>{m}</option>)}
-                </select>
+                <BrandCombobox value={form.make} onChange={v => set("make", v)} />
               </Field>
               <Field label="Model">
-                {MODELS_BY_MAKE[form.make]?.length>0 && !manualModel
-                  ? <select className={sel} value={form.model} onChange={e=>set("model",e.target.value)}>
-                      {MODELS_BY_MAKE[form.make].map(m=><option key={m}>{m}</option>)}
-                    </select>
-                  : <input className={inp} value={form.model} onChange={e=>set("model",e.target.value)} placeholder="Model name"/>
-                }
+                <ModelCombobox brand={form.make} value={form.model} onChange={v => set("model", v)} />
               </Field>
               <Field label="Variant">
                 <input className={inp} value={form.variant} onChange={e=>set("variant",e.target.value)} placeholder="e.g. ZXI+"/>

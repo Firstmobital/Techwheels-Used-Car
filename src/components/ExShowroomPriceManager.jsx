@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { ExShowroomPrice } from "@/api/entities";
-
-const MAKES = ["Maruti", "Hyundai", "Tata", "Honda", "Kia", "Toyota", "Renault", "Nissan", "MG", "Skoda", "Volkswagen", "Ford", "Chevrolet", "Mahindra", "Other"];
+import { MAKES } from "@/utils/carConstants";
+import { BrandCombobox, ModelCombobox } from "./BrandModelCombobox";
 
 const inp = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400";
 
@@ -150,14 +150,11 @@ export default function ExShowroomPriceManager() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Make *</label>
-              <select value={form.make} onChange={e => setForm(f => ({ ...f, make: e.target.value }))} className={inp}>
-                {MAKES.map(m => <option key={m}>{m}</option>)}
-              </select>
+              <BrandCombobox value={form.make} onChange={v => setForm(f => ({ ...f, make: v }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Model *</label>
-              <input value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-                placeholder="e.g. Swift" className={inp} />
+              <ModelCombobox brand={form.make} value={form.model} onChange={v => setForm(f => ({ ...f, model: v }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 mb-1 block">Variant (optional)</label>
