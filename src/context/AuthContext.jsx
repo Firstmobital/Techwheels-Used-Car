@@ -215,7 +215,17 @@ export function AuthProvider({ children }) {
 
   // ── signIn ─────────────────────────────────────────────────────────────────
   const signIn = useCallback(async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedPassword = String(password || '').trim();
+
+    if (!normalizedEmail || !normalizedPassword) {
+      throw new Error('Email and password are required.');
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: normalizedPassword,
+    });
     if (error) throw error;
     return data;
   }, []);

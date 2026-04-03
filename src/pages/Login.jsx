@@ -27,6 +27,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const canSubmit = email.trim().length > 0 && password.trim().length > 0;
 
   const redirectPath = getRedirectPath(location);
 
@@ -38,10 +39,19 @@ export default function Login() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+
+    const normalizedEmail = email.trim();
+    const normalizedPassword = password.trim();
+
+    if (!normalizedEmail || !normalizedPassword) {
+      setError('Email and password are required.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await signIn(email.trim(), password);
+      await signIn(normalizedEmail, normalizedPassword);
       sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
       navigate(redirectPath, { replace: true });
     } catch (err) {
@@ -96,7 +106,7 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !canSubmit}
             className="h-11 w-full rounded-lg bg-orange-500 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:bg-orange-300"
           >
             {isSubmitting ? 'Signing in...' : 'Login'}
