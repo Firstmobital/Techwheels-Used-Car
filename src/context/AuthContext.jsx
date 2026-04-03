@@ -11,17 +11,43 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const AUTH_INIT_TIMEOUT_MS = 8000;
-const SUPABASE_STORAGE_KEY = 'techwheels-auth'; // must match storageKey in supabaseClient.js
+// getSession() reads from localStorage so it should be near-instant.
+// 3s is generous; 8s was masking the real problem (Supabase unreachable).
+const AUTH_INIT_TIMEOUT_MS = 3000;
+
+// The key we set in supabaseClient.js storageKey option.
+const SUPABASE_STORAGE_KEY = 'techwheels-auth';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 const AuthContext = createContext(undefined);
 
-// ─── Employee fetch ───────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Wipe every Supabase-related key from localStorage.
+ * We do this synchronously on logout so it works even when offline.
+ */
+function nukeLocalSession() {
+  try {
+    // Our custom key
+    window.localStorage.removeItem(SUPABASE_STORAGE_KEY);
+
+    // Supabase also writes a key like "sb-<project-ref>-auth-token"
+    // Find and remove any key that looks like a supabase auth token.
+    Object.keys(window.localStorage).forEach((key) => {
+      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        window.localStorage.removeItem(key);
+      }
+    });
+  } catch (_) {
+    // localStorage may be blocked in some environments — ignore
+  }
+}
+
 /**
  * Fetches the employee record linked to a Supabase auth user.
  * Returns { data, notFound, error } so callers can distinguish
- * between "record missing" and "network/db error".
+ * between "record missing" and a real db/network error.
  */
 async function fetchEmployee(userId) {
   if (!userId) return { data: null, notFound: false, error: null };
@@ -36,7 +62,7 @@ async function fetchEmployee(userId) {
     `)
     .eq('auth_user_id', userId)
     .eq('employee_status', 'active')
-    .maybeSingle(); // ← returns null instead of error when no row found
+    .maybeSingle(); // returns null (not error) when no row found
 
   if (error) {
     console.error('[Auth] fetchEmployee db error:', error.message);
@@ -46,7 +72,7 @@ async function fetchEmployee(userId) {
   return { data, notFound: data === null, error: null };
 }
 
-// ─── Role helpers ─────────────────────────────────────────────────────────────
+// ─── Role logic ───────────────────────────────────────────────────────────────
 const USED_CAR_DEPT_ID = 13;
 const USED_CAR_ROLE_ID = 6;
 
@@ -63,48 +89,41 @@ function deriveIsUsedCarDept(employee) {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
-  const [session, setSession]       = useState(null);
-  const [user, setUser]             = useState(null);
-  const [employee, setEmployee]     = useState(null);
-  const [loading, setLoading]       = useState(true);
-
-  // employeeStatus: 'idle' | 'loading' | 'found' | 'not_found' | 'error'
+  const [session, setSession]           = useState(null);
+  const [user, setUser]                 = useState(null);
+  const [employee, setEmployee]         = useState(null);
+  const [loading, setLoading]           = useState(true);
+  // 'idle' | 'loading' | 'found' | 'not_found' | 'error'
   const [employeeStatus, setEmployeeStatus] = useState('idle');
 
-  // Prevent stale async updates after unmount
+  // Ref-based mount guard — prevents setState calls after unmount
   const isMounted = useRef(true);
   useEffect(() => {
     isMounted.current = true;
     return () => { isMounted.current = false; };
   }, []);
 
-  // ── Load employee (shared logic) ───────────────────────────────────────────
+  // ── Load employee ──────────────────────────────────────────────────────────
   const loadEmployee = useCallback(async (userId) => {
     if (!userId) {
-      if (isMounted.current) {
-        setEmployee(null);
-        setEmployeeStatus('idle');
-      }
+      if (isMounted.current) { setEmployee(null); setEmployeeStatus('idle'); }
       return;
     }
 
     if (isMounted.current) setEmployeeStatus('loading');
 
     const { data, notFound, error } = await fetchEmployee(userId);
-
     if (!isMounted.current) return;
 
     if (error) {
       setEmployee(null);
       setEmployeeStatus('error');
-      console.warn('[Auth] Could not load employee record. User may have limited access.');
       return;
     }
-
     if (notFound) {
       setEmployee(null);
       setEmployeeStatus('not_found');
-      console.warn('[Auth] No active employee record found for this user.');
+      console.warn('[Auth] No active employee record for this user.');
       return;
     }
 
@@ -112,31 +131,28 @@ export function AuthProvider({ children }) {
     setEmployeeStatus('found');
   }, []);
 
-  // ── Initialise session on mount ────────────────────────────────────────────
+  // ── Session initialisation ─────────────────────────────────────────────────
   useEffect(() => {
     let timeoutId;
 
     const init = async () => {
-      // Safety timeout — never block UI forever
+      // Timeout so a hanging network call never blocks the UI forever.
+      // getSession() should read from localStorage and be near-instant —
+      // if it takes >3s, Supabase is unreachable.
       timeoutId = window.setTimeout(() => {
         if (!isMounted.current) return;
-        console.warn('[Auth] Session init timed out.');
+        console.warn('[Auth] Session init timed out — Supabase may be unreachable.');
         setLoading(false);
       }, AUTH_INIT_TIMEOUT_MS);
 
       try {
         const { data, error } = await supabase.auth.getSession();
-
         if (!isMounted.current) return;
 
         if (error) {
           console.error('[Auth] getSession error:', error.message);
-          // Clear potentially corrupted storage
-          try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
-          setSession(null);
-          setUser(null);
-          setEmployee(null);
-          setEmployeeStatus('idle');
+          nukeLocalSession();
+          setSession(null); setUser(null); setEmployee(null); setEmployeeStatus('idle');
           return;
         }
 
@@ -144,19 +160,14 @@ export function AuthProvider({ children }) {
         setSession(sess);
         setUser(sess?.user ?? null);
 
-        // Load employee BEFORE clearing the loading state
-        // so the UI doesn't flash an intermediate state
-        if (sess?.user) {
-          await loadEmployee(sess.user.id);
-        }
+        // Load employee before clearing loading state to avoid a layout flash
+        if (sess?.user) await loadEmployee(sess.user.id);
+
       } catch (err) {
         console.error('[Auth] Unexpected init error:', err);
-        try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
+        nukeLocalSession();
         if (isMounted.current) {
-          setSession(null);
-          setUser(null);
-          setEmployee(null);
-          setEmployeeStatus('idle');
+          setSession(null); setUser(null); setEmployee(null); setEmployeeStatus('idle');
         }
       } finally {
         window.clearTimeout(timeoutId);
@@ -166,12 +177,12 @@ export function AuthProvider({ children }) {
 
     init();
 
-    // ── Auth state change listener ─────────────────────────────────────────
+    // ── Auth state listener ──────────────────────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, nextSession) => {
         if (!isMounted.current) return;
 
-        // TOKEN_REFRESHED: session updated silently — no need to re-fetch employee
+        // TOKEN_REFRESHED is silent — just update session, no employee re-fetch needed
         if (event === 'TOKEN_REFRESHED') {
           setSession(nextSession);
           return;
@@ -183,11 +194,11 @@ export function AuthProvider({ children }) {
         if (!nextSession?.user) {
           setEmployee(null);
           setEmployeeStatus('idle');
-          setLoading(false);
+          if (isMounted.current) setLoading(false);
           return;
         }
 
-        // Only reload employee on actual sign-in events, not every state change
+        // Only re-fetch employee on real sign-in events
         if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
           await loadEmployee(nextSession.user.id);
         }
@@ -217,54 +228,47 @@ export function AuthProvider({ children }) {
   }, []);
 
   // ── signOut ────────────────────────────────────────────────────────────────
-  // ⚠ Key fix: call Supabase FIRST, then clear local state.
-  // If the API call fails, the user remains logged in consistently.
+  // KEY DESIGN: clear local state FIRST so the UI reacts immediately.
+  // The network call is fire-and-forget — logout always works even offline.
   const signOut = useCallback(async () => {
-    try {
-      const { error } = await supabase.auth.signOut({ scope: 'local' });
-      if (error) throw error;
-    } catch (err) {
-      // Even if signOut API fails, nuke local storage so the user
-      // isn't stuck in a broken session on next load.
-      try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
-      throw err;
-    } finally {
-      // Always clear local state after attempting signout
-      if (isMounted.current) {
-        setSession(null);
-        setUser(null);
-        setEmployee(null);
-        setEmployeeStatus('idle');
-        setLoading(false);
-      }
+    // Step 1: Wipe localStorage synchronously — works even if Supabase is down
+    nukeLocalSession();
+
+    // Step 2: Clear React state immediately so ProtectedRoute redirects at once
+    if (isMounted.current) {
+      setSession(null);
+      setUser(null);
+      setEmployee(null);
+      setEmployeeStatus('idle');
+      setLoading(false);
     }
+
+    // Step 3: Best-effort server-side invalidation — don't await, don't throw
+    supabase.auth.signOut({ scope: 'local' }).catch((err) => {
+      console.warn('[Auth] Server signout failed (offline?):', err?.message);
+    });
   }, []);
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const isUsedCarDept = deriveIsUsedCarDept(employee);
-
-  const employeeName = employee
+  const employeeName  = employee
     ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim()
     : '';
-
   const branchName = employee?.locations?.name || '';
 
   // ── Context value ──────────────────────────────────────────────────────────
   const value = useMemo(() => ({
-    // Core auth
     session,
     user,
     loading,
     isAuthenticated: !!user,
 
-    // Employee
     employee,
-    employeeStatus, // expose so UI can show "not registered" vs "error" states
+    employeeStatus,   // use this in UI: 'not_found' → show UserNotRegisteredError
     isUsedCarDept,
     employeeName,
     branchName,
 
-    // Actions
     signIn,
     signUp,
     signOut,

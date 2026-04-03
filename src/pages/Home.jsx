@@ -149,12 +149,9 @@ export default function Home() {
   const [recentEvals, setRecentEvals] = useState([]);
   const [lastSync, setLastSync] = useState(null);
   const [scraping, setScraping] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [scrapeMsg, setScrapeMsg] = useState(null);
   const [pendingExchangeCount, setPendingExchangeCount] = useState(0);
-  // For passing pre-fill data from exchange enquiries into evaluate form
   const [evaluatePrefill, setEvaluatePrefill] = useState(null);
-  // For editing an existing evaluation
   const [editEvalData, setEditEvalData] = useState(null);
 
   const NAV = isUsedCarDept ? NAV_FULL : NAV_LIMITED;
@@ -183,7 +180,6 @@ export default function Home() {
       }).catch(()=>{});
   }, [nav, isUsedCarDept]);
 
-  // Fetch pending exchange count for badge
   useEffect(() => {
     if (!isUsedCarDept) return;
     supabase
@@ -205,20 +201,13 @@ export default function Home() {
     setScraping(false);
   };
 
-  const handleLogout = async () => {
-    setLoggingOut(true);
-    try {
-      await signOut();
-    } catch(e) {
-      setScrapeMsg({ error: e.message });
-    } finally {
-      sessionStorage.removeItem("tw_post_login_redirect");
-      setLoggingOut(false);
-      navigate("/login", { replace: true });
-    }
+  // ── Logout: instant, no await, no loading state needed ────────────────────
+  const handleLogout = () => {
+    sessionStorage.removeItem("tw_post_login_redirect");
+    signOut(); // clears localStorage + React state synchronously, server call is fire-and-forget
+    navigate("/login", { replace: true });
   };
 
-  // Navigate to evaluate with prefill from exchange enquiry
   const openEvaluateFromWalkin = (walkin) => {
     setEvaluatePrefill({
       customer_name: walkin.customer_name || "",
@@ -231,7 +220,6 @@ export default function Home() {
     setNav("evaluate");
   };
 
-  // Navigate to evaluate with full eval data for editing
   const openEvaluateForEdit = (evalRecord) => {
     setEditEvalData(evalRecord);
     setEvaluatePrefill(null);
@@ -298,8 +286,8 @@ export default function Home() {
                 {scraping ? "Syncing…" : "Sync"}
               </button>
             )}
-            <button onClick={handleLogout} disabled={loggingOut} className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-60">
-              {loggingOut ? "Logging out…" : "Logout"}
+            <button onClick={handleLogout} className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium">
+              Logout
             </button>
           </div>
         </header>
@@ -311,9 +299,11 @@ export default function Home() {
             {employeeName && <span className="bg-gray-100 px-2 py-1 rounded-md">{employeeName}</span>}
             {branchName && <span className="bg-gray-100 px-2 py-1 rounded-md">{branchName}</span>}
             {lastSync && isUsedCarDept && <span>Last sync: {new Date(lastSync.scrape_date).toLocaleDateString("en-IN")}</span>}
-            <button onClick={handleLogout} disabled={loggingOut}
-              className="text-xs bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-md font-medium hover:bg-gray-50 disabled:opacity-60">
-              {loggingOut ? "Logging out..." : "Logout"}
+            <button
+              onClick={handleLogout}
+              className="text-xs bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-md font-medium hover:bg-gray-50"
+            >
+              Logout
             </button>
           </div>
         </header>
@@ -408,6 +398,7 @@ function DashboardPage({ stats, recentEvals }) {
     </div>
   );
 }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  EVALUATE PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -480,9 +471,7 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
   const [marketSavedMsg, setMarketSavedMsg] = useState(null);
   const [rtoLoading, setRtoLoading] = useState(false);
   const [rtoFound, setRtoFound] = useState(false);
-  // rtoFields tracks which fields came from RTO (for UI highlighting)
   const [rtoFields, setRtoFields] = useState({});
-  // Debounce timer for RTO lookup
   const rtoDebounceRef = useRef(null);
 
   const [sections, setSections] = useState(() => {
@@ -494,10 +483,8 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
     ConditionCheck.filter({ is_active:true }).then(data => {
       setConditions(data);
       if (editEvalData) {
-        // restore checked state from saved evaluation
         const saved = {};
         data.forEach(c => {
-          // default: positive = checked, negative = unchecked
           saved[c.id] = editEvalData[`cond_${c.id}`] !== undefined
             ? editEvalData[`cond_${c.id}`]
             : !c.is_negative;
@@ -510,7 +497,6 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
       }
     });
 
-    // Fetch locations and employees in parallel for speed
     Promise.all([
       supabase.from("locations").select("name"),
       supabase.from("employees").select("first_name,last_name").eq("employee_status","active"),
@@ -524,92 +510,58 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
     });
   }, []);
 
-  // RTO lookup — debounced 600ms, fires once when reg number is complete
-const lookupRTO = useCallback((regNo) => {
-  if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
-  const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
-  if (cleaned.length < 9) return;
+  const lookupRTO = useCallback((regNo) => {
+    if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
+    const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
+    if (cleaned.length < 9) return;
 
-  rtoDebounceRef.current = setTimeout(async () => {
-    setRtoLoading(true);
-    try {
-      // Try exact match first
-      const { data, error } = await supabase
-        .from("all_rto_data")
-        .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-        .eq("Registration No.", regNo)
-        .maybeSingle();
-
-      if (!error && data) {
-        applyRTO(data);
-        setRtoLoading(false);
-        return;
-      }
-
-      // Fallback: try without dashes (e.g. "RJ14UB3469")
-      const { data: data2 } = await supabase
-        .from("all_rto_data")
-        .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-        .eq("Registration No.", cleaned)
-        .maybeSingle();
-
-      if (data2) {
-        applyRTO(data2);
-        setRtoLoading(false);
-        return;
-      }
-
-      // Last fallback: try with standard dash format RJ-14-UB-3469
-      const parts = cleaned.match(/^([A-Z]{2})(\d{2})([A-Z]{1,3})(\d{1,4})$/);
-      if (parts) {
-        const formatted = `${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
-        const { data: data3 } = await supabase
+    rtoDebounceRef.current = setTimeout(async () => {
+      setRtoLoading(true);
+      try {
+        const { data } = await supabase
           .from("all_rto_data")
           .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-          .eq("Registration No.", formatted)
+          .eq("Registration No.", regNo)
           .maybeSingle();
-        if (data3) applyRTO(data3);
-      }
 
-    } catch(e) {
-      console.warn("RTO lookup failed:", e.message);
-    }
-    setRtoLoading(false);
-  }, 400); // reduced from 600ms since queries will be fast now
-}, [form.customer_name, form.customer_mobile]);
+        if (data) { applyRTO(data); setRtoLoading(false); return; }
+
+        const { data: data2 } = await supabase
+          .from("all_rto_data")
+          .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+          .eq("Registration No.", cleaned)
+          .maybeSingle();
+
+        if (data2) { applyRTO(data2); setRtoLoading(false); return; }
+
+        const parts = cleaned.match(/^([A-Z]{2})(\d{2})([A-Z]{1,3})(\d{1,4})$/);
+        if (parts) {
+          const formatted = `${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
+          const { data: data3 } = await supabase
+            .from("all_rto_data")
+            .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+            .eq("Registration No.", formatted)
+            .maybeSingle();
+          if (data3) applyRTO(data3);
+        }
+      } catch(e) {
+        console.warn("RTO lookup failed:", e.message);
+      }
+      setRtoLoading(false);
+    }, 400);
+  }, [form.customer_name, form.customer_mobile]);
 
   const applyRTO = (data) => {
     setRtoFound(true);
     const newRtoFields = {};
     const updates = {};
 
-    if (data["Maker Name"]) {
-      const matched = fuzzyMatchMake(data["Maker Name"]);
-      updates.make = matched;
-      newRtoFields.make = true;
-    }
-    // Model Name in RTO = Variant in our system
-    if (data["Model Name"]) {
-      updates.variant = data["Model Name"];
-      newRtoFields.variant = true;
-    }
-    if (data["Fuel Type"]) {
-      updates.fuel_type = normalizeFuel(data["Fuel Type"]);
-      newRtoFields.fuel_type = true;
-    }
-    if (data["Color"]) {
-      updates.colour = normalizeColor(data["Color"]);
-      newRtoFields.colour = true;
-    }
-    // Auto-fill customer name/mobile only if empty
-    if (data["Owner Name"] && !form.customer_name) {
-      updates.customer_name = data["Owner Name"];
-      newRtoFields.customer_name = true;
-    }
-    if (data["Mobile No."] && !form.customer_mobile) {
-      updates.customer_mobile = String(data["Mobile No."]);
-      newRtoFields.customer_mobile = true;
-    }
+    if (data["Maker Name"]) { updates.make = fuzzyMatchMake(data["Maker Name"]); newRtoFields.make = true; }
+    if (data["Model Name"]) { updates.variant = data["Model Name"]; newRtoFields.variant = true; }
+    if (data["Fuel Type"])  { updates.fuel_type = normalizeFuel(data["Fuel Type"]); newRtoFields.fuel_type = true; }
+    if (data["Color"])      { updates.colour = normalizeColor(data["Color"]); newRtoFields.colour = true; }
+    if (data["Owner Name"] && !form.customer_name)   { updates.customer_name = data["Owner Name"]; newRtoFields.customer_name = true; }
+    if (data["Mobile No."] && !form.customer_mobile) { updates.customer_mobile = String(data["Mobile No."]); newRtoFields.customer_mobile = true; }
 
     setRtoFields(newRtoFields);
     setForm(f => ({ ...f, ...updates }));
@@ -621,17 +573,10 @@ const lookupRTO = useCallback((regNo) => {
       if (field==="make") { u.model = ""; }
       return u;
     });
-    // Clear RTO highlight if user manually edits
-    if (rtoFields[field]) {
-      setRtoFields(prev => { const n={...prev}; delete n[field]; return n; });
-    }
+    if (rtoFields[field]) setRtoFields(prev => { const n={...prev}; delete n[field]; return n; });
     const evalFields = ["make","model","variant","year","km_driven","fuel_type","transmission","colour","num_owners","insurance_type","customer_name","car_reg_no","customer_mobile","branch","ca_name","evaluator_name"];
-    if (evalFields.includes(field)) {
-      setResult(null); setAutoSaved(false); setSellerSaved(false); setAutoSaveMsg("");
-    }
-    if (["seller_asking_price","offered_price","notes"].includes(field)) {
-      setSellerSaved(false);
-    }
+    if (evalFields.includes(field)) { setResult(null); setAutoSaved(false); setSellerSaved(false); setAutoSaveMsg(""); }
+    if (["seller_asking_price","offered_price","notes"].includes(field)) { setSellerSaved(false); }
     if (["make","model","variant","fuel_type","transmission"].includes(field)) setExData(null);
   };
 
@@ -695,7 +640,6 @@ const lookupRTO = useCallback((regNo) => {
       const nextResult = { fair_value:fairValue, suggested_purchase_price:suggestedPurchasePrice, decision, breakdown:{ base_price_used:basePrice, age_years:age }, market_stats:marketStats };
       setResult(nextResult);
 
-      // Build condition snapshot for storage
       const condSnapshot = {};
       conditions.forEach(c => { condSnapshot[`cond_${c.id}`] = !!condChecks[c.id]; });
 
@@ -720,7 +664,6 @@ const lookupRTO = useCallback((regNo) => {
       if (savedEvalId) {
         await CarEvaluation.update(savedEvalId, payload);
         setAutoSaveMsg("Evaluation re-calculated and updated in history.");
-        // If editing from walkin, mark walkin as evaluated
         if (prefill?.walkin_id) {
           await supabase.from('showroom_walkins').update({ evaluated_at: new Date().toISOString() }).eq('id', prefill.walkin_id);
         }
@@ -773,9 +716,8 @@ const lookupRTO = useCallback((regNo) => {
 
   const dm = decisionMeta[result?.decision]||decisionMeta["Pending"];
 
-  // Helper: field class based on RTO origin
   const fieldClass = (field) => rtoFields[field] ? inpBlue : inp;
-  const selClass = (field) => rtoFields[field] ? inpBlue : sel;
+  const selClass   = (field) => rtoFields[field] ? inpBlue : sel;
 
   const ResultPanel = () => result ? (
     <div className="space-y-3">
@@ -868,7 +810,6 @@ const lookupRTO = useCallback((regNo) => {
 
       <div className="lg:grid lg:grid-cols-[1fr_300px] lg:gap-5 lg:items-start space-y-4 lg:space-y-0">
         <div>
-          {/* Auto-fill legend */}
           <div className="flex flex-wrap gap-3 mb-3 text-xs">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-400 inline-block"></span><span className="text-gray-500">Auto from login</span></span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"></span><span className="text-gray-500">Auto from RTO</span></span>
@@ -903,14 +844,16 @@ const lookupRTO = useCallback((regNo) => {
                     value={form.customer_name} onChange={e=>set("customer_name",e.target.value)} placeholder="e.g. Ramesh Kumar"/>
                 </Field>
                 <Field label="Mobile number" required>
-                  <input className={`${rtoFields.customer_mobile ? inpBlue : (prefill?.customer_mobile ? inpGreen : inp)} ${form.customer_mobile&&form.customer_mobile.length<10?"border-red-300":form.customer_mobile.length>=10?"border-green-400":""}`}
+                  <input
+                    className={`${rtoFields.customer_mobile ? inpBlue : (prefill?.customer_mobile ? inpGreen : inp)} ${form.customer_mobile&&form.customer_mobile.length<10?"border-red-300":form.customer_mobile.length>=10?"border-green-400":""}`}
                     type="tel" value={form.customer_mobile}
                     onChange={e=>set("customer_mobile",e.target.value.replace(/\D/g,"").slice(0,10))}
                     placeholder="10-digit number" inputMode="numeric"/>
                 </Field>
                 <Field label="Car reg. no." required>
                   <div className="relative">
-                    <input className={`${inp} ${!form.car_reg_no?"border-red-300":"border-green-400"} pr-16`}
+                    <input
+                      className={`${inp} ${!form.car_reg_no?"border-red-300":"border-green-400"} pr-16`}
                       value={form.car_reg_no}
                       onChange={e=>{
                         let v=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");
@@ -918,7 +861,6 @@ const lookupRTO = useCallback((regNo) => {
                         if(v.length>7)v=v.slice(0,7)+"-"+v.slice(7);
                         if(v.length>12)v=v.slice(0,12);
                         set("car_reg_no",v);
-                        // Only trigger lookup when clean length is exactly 9-11 chars
                         const cleanLen = v.replace(/-/g,"").length;
                         if(cleanLen >= 9 && cleanLen <= 11) lookupRTO(v);
                       }}
@@ -1051,7 +993,7 @@ const lookupRTO = useCallback((regNo) => {
             </div>
           </AccordionItem>
 
-          {/* ── Mobile result panel — between step 4 and step 5 ── */}
+          {/* Mobile result panel */}
           {result && (
             <div className="lg:hidden mt-3 mb-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Evaluation result</p>
@@ -1095,6 +1037,7 @@ const lookupRTO = useCallback((regNo) => {
     </div>
   );
 }
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  EXCHANGE ENQUIRIES PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1102,9 +1045,7 @@ function ExchangePage({ onEvaluate }) {
   const [walkins, setWalkins] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadWalkins();
-  }, []);
+  useEffect(() => { loadWalkins(); }, []);
 
   const loadWalkins = async () => {
     setLoading(true);
@@ -1119,12 +1060,9 @@ function ExchangePage({ onEvaluate }) {
         `)
         .eq('is_exchange_enquiry', true)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       setWalkins(data || []);
-    } catch(e) {
-      console.error('Error loading walkins:', e.message);
-    }
+    } catch(e) { console.error('Error loading walkins:', e.message); }
     setLoading(false);
   };
 
@@ -1133,12 +1071,10 @@ function ExchangePage({ onEvaluate }) {
     return name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   };
 
-  const pending = walkins.filter(w => !w.evaluated_at);
+  const pending   = walkins.filter(w => !w.evaluated_at);
   const evaluated = walkins.filter(w => w.evaluated_at);
 
-  if (loading) {
-    return <div className="text-center py-12 text-gray-400">Loading…</div>;
-  }
+  if (loading) return <div className="text-center py-12 text-gray-400">Loading…</div>;
 
   return (
     <div className="space-y-4">
@@ -1163,19 +1099,13 @@ function ExchangePage({ onEvaluate }) {
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           {pending.length > 0 && (
             <>
-              <div className="px-4 py-2 bg-orange-50 border-b border-orange-100 text-xs font-semibold text-orange-700 uppercase tracking-wider">
-                Pending evaluation
-              </div>
+              <div className="px-4 py-2 bg-orange-50 border-b border-orange-100 text-xs font-semibold text-orange-700 uppercase tracking-wider">Pending evaluation</div>
               {pending.map(w => {
-                const spName = w.salesperson
-                  ? `${w.salesperson.first_name||""} ${w.salesperson.last_name||""}`.trim()
-                  : "";
+                const spName = w.salesperson ? `${w.salesperson.first_name||""} ${w.salesperson.last_name||""}`.trim() : "";
                 const locationName = w.location?.name || "";
                 return (
                   <div key={w.id} className="flex items-center px-4 py-3 border-b border-gray-50 gap-3">
-                    <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-semibold text-xs flex-shrink-0">
-                      {getInitials(w.customer_name)}
-                    </div>
+                    <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 font-semibold text-xs flex-shrink-0">{getInitials(w.customer_name)}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900">{w.customer_name || "Unknown"}</p>
                       <p className="text-xs text-gray-400 mt-0.5 truncate">
@@ -1195,21 +1125,14 @@ function ExchangePage({ onEvaluate }) {
               })}
             </>
           )}
-
           {evaluated.length > 0 && (
             <>
-              <div className="px-4 py-2 bg-green-50 border-b border-green-100 text-xs font-semibold text-green-700 uppercase tracking-wider">
-                Already evaluated
-              </div>
+              <div className="px-4 py-2 bg-green-50 border-b border-green-100 text-xs font-semibold text-green-700 uppercase tracking-wider">Already evaluated</div>
               {evaluated.map(w => {
-                const spName = w.salesperson
-                  ? `${w.salesperson.first_name||""} ${w.salesperson.last_name||""}`.trim()
-                  : "";
+                const spName = w.salesperson ? `${w.salesperson.first_name||""} ${w.salesperson.last_name||""}`.trim() : "";
                 return (
                   <div key={w.id} className="flex items-center px-4 py-3 border-b border-gray-50 gap-3 opacity-55">
-                    <div className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center text-green-700 font-semibold text-xs flex-shrink-0">
-                      {getInitials(w.customer_name)}
-                    </div>
+                    <div className="w-9 h-9 rounded-full bg-green-50 flex items-center justify-center text-green-700 font-semibold text-xs flex-shrink-0">{getInitials(w.customer_name)}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900">{w.customer_name || "Unknown"}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
@@ -1218,9 +1141,7 @@ function ExchangePage({ onEvaluate }) {
                         {` · ${new Date(w.created_at).toLocaleDateString("en-IN",{day:"2-digit",month:"short"})}`}
                       </p>
                     </div>
-                    <span className="flex-shrink-0 bg-green-100 text-green-700 text-xs font-medium px-3 py-1.5 rounded-lg">
-                      Evaluated ✓
-                    </span>
+                    <span className="flex-shrink-0 bg-green-100 text-green-700 text-xs font-medium px-3 py-1.5 rounded-lg">Evaluated ✓</span>
                   </div>
                 );
               })}
@@ -1228,10 +1149,7 @@ function ExchangePage({ onEvaluate }) {
           )}
         </div>
       )}
-
-      <p className="text-xs text-gray-400 px-1">
-        Once evaluated, the row is greyed out and cannot be re-evaluated. The full record is in the History tab.
-      </p>
+      <p className="text-xs text-gray-400 px-1">Once evaluated, the row is greyed out. The full record is in the History tab.</p>
     </div>
   );
 }
@@ -1248,25 +1166,19 @@ function HistoryPage({ onEditEval }) {
   const [search, setSearch] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
   const [expandedRow, setExpandedRow] = useState(null);
-
-  // Edit prices modal
   const [priceModal, setPriceModal] = useState(null);
   const [priceForm, setPriceForm] = useState({ seller_asking_price:"", offered_price:"", notes:"" });
   const [savingPrices, setSavingPrices] = useState(false);
-
-  // WhatsApp modal
   const [waModal, setWaModal] = useState(null);
   const [editEvalModal, setEditEvalModal] = useState(null);
 
   const loadEvals = () => {
-    Promise.all([
-      CarEvaluation.list(),
-      ConditionCheck.list(),
-    ]).then(([data, conds]) => {
-      setEvals(data.sort((a,b)=>new Date(b.eval_date||b.created_date)-new Date(a.eval_date||a.created_date)));
-      setConditions(conds);
-      setLoading(false);
-    }).catch(()=>setLoading(false));
+    Promise.all([CarEvaluation.list(), ConditionCheck.list()])
+      .then(([data, conds]) => {
+        setEvals(data.sort((a,b)=>new Date(b.eval_date||b.created_date)-new Date(a.eval_date||a.created_date)));
+        setConditions(conds);
+        setLoading(false);
+      }).catch(()=>setLoading(false));
   };
 
   useEffect(() => { loadEvals(); }, []);
@@ -1279,11 +1191,7 @@ function HistoryPage({ onEditEval }) {
   };
 
   const openPriceModal = (ev) => {
-    setPriceForm({
-      seller_asking_price: ev.seller_asking_price || "",
-      offered_price: ev.offered_price || "",
-      notes: ev.notes || "",
-    });
+    setPriceForm({ seller_asking_price: ev.seller_asking_price || "", offered_price: ev.offered_price || "", notes: ev.notes || "" });
     setPriceModal(ev);
   };
 
@@ -1293,12 +1201,7 @@ function HistoryPage({ onEditEval }) {
     try {
       const sellerAsking = priceForm.seller_asking_price ? +priceForm.seller_asking_price : null;
       const newDecision = getDecision(sellerAsking, priceModal.suggested_purchase_price);
-      const payload = {
-        seller_asking_price: sellerAsking,
-        offered_price: priceForm.offered_price ? +priceForm.offered_price : null,
-        notes: priceForm.notes,
-        decision: newDecision,
-      };
+      const payload = { seller_asking_price: sellerAsking, offered_price: priceForm.offered_price ? +priceForm.offered_price : null, notes: priceForm.notes, decision: newDecision };
       await CarEvaluation.update(priceModal.id, payload);
       setEvals(prev=>prev.map(e=>e.id===priceModal.id?{...e,...payload}:e));
       setPriceModal(null);
@@ -1306,22 +1209,17 @@ function HistoryPage({ onEditEval }) {
     setSavingPrices(false);
   };
 
-  const openWaModal = (ev) => setWaModal(ev);
-
-  const openEditEvalModal = (ev) => setEditEvalModal(ev);
+  const sendWhatsApp = (ev) => {
+    const mobile = ev.customer_mobile?.replace(/\D/g,"");
+    if (!mobile) { alert("No customer mobile number on record."); return; }
+    const msg = buildWhatsAppMessage(ev, conditions);
+    window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
 
   const confirmOpenEditEval = () => {
     if (!editEvalModal) return;
     onEditEval(editEvalModal);
     setEditEvalModal(null);
-  };
-
-  const sendWhatsApp = (ev) => {
-    const mobile = ev.customer_mobile?.replace(/\D/g,"");
-    if (!mobile) { alert("No customer mobile number on record."); return; }
-    const msg = buildWhatsAppMessage(ev, conditions);
-    const url = `https://wa.me/91${mobile}?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
   };
 
   const filtered = evals.filter(e=>
@@ -1395,8 +1293,8 @@ function HistoryPage({ onEditEval }) {
                       </div>
                       <div className="flex gap-2 flex-wrap">
                         <button onClick={()=>openPriceModal(ev)} className="flex-1 py-2 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50">Edit prices</button>
-                        <button onClick={()=>openEditEvalModal(ev)} className="flex-1 py-2 rounded-lg border border-blue-200 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100">Edit evaluation</button>
-                        <button onClick={()=>openWaModal(ev)} className="flex-1 py-2 rounded-lg border border-green-200 text-xs text-green-700 bg-green-50 hover:bg-green-100">WhatsApp</button>
+                        <button onClick={()=>setEditEvalModal(ev)} className="flex-1 py-2 rounded-lg border border-blue-200 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100">Edit evaluation</button>
+                        <button onClick={()=>setWaModal(ev)} className="flex-1 py-2 rounded-lg border border-green-200 text-xs text-green-700 bg-green-50 hover:bg-green-100">WhatsApp</button>
                       </div>
                     </div>
                   )}
@@ -1436,12 +1334,9 @@ function HistoryPage({ onEditEval }) {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1.5">
-                            <button onClick={()=>openPriceModal(ev)}
-                              className="text-xs border border-gray-200 hover:bg-gray-50 text-gray-600 px-2 py-1 rounded-lg">Edit prices</button>
-                            <button onClick={()=>openEditEvalModal(ev)}
-                              className="text-xs border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-lg">Edit eval</button>
-                            <button onClick={()=>openWaModal(ev)}
-                              className="text-xs border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 px-2 py-1 rounded-lg">WA</button>
+                            <button onClick={()=>openPriceModal(ev)} className="text-xs border border-gray-200 hover:bg-gray-50 text-gray-600 px-2 py-1 rounded-lg">Edit prices</button>
+                            <button onClick={()=>setEditEvalModal(ev)} className="text-xs border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1 rounded-lg">Edit eval</button>
+                            <button onClick={()=>setWaModal(ev)} className="text-xs border border-green-200 bg-green-50 hover:bg-green-100 text-green-700 px-2 py-1 rounded-lg">WA</button>
                           </div>
                         </td>
                       </tr>
@@ -1501,9 +1396,7 @@ function HistoryPage({ onEditEval }) {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-gray-900">Send on WhatsApp</h3>
-                <p className="text-xs text-gray-400 mt-1">
-                  {waModal.customer_mobile ? `Sending to +91 ${waModal.customer_mobile}` : "No mobile number on record"}
-                </p>
+                <p className="text-xs text-gray-400 mt-1">{waModal.customer_mobile ? `Sending to +91 ${waModal.customer_mobile}` : "No mobile number on record"}</p>
               </div>
               <button onClick={()=>setWaModal(null)} className="text-gray-400 hover:text-gray-600 ml-4 text-xl">×</button>
             </div>
@@ -1511,8 +1404,7 @@ function HistoryPage({ onEditEval }) {
               {buildWhatsAppMessage(waModal, conditions)}
             </div>
             <div className="flex gap-3">
-              <button onClick={()=>sendWhatsApp(waModal)}
-                disabled={!waModal.customer_mobile}
+              <button onClick={()=>sendWhatsApp(waModal)} disabled={!waModal.customer_mobile}
                 className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-sm font-semibold py-2 rounded-xl flex items-center justify-center gap-2">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                 Open WhatsApp
@@ -1530,25 +1422,16 @@ function HistoryPage({ onEditEval }) {
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h3 className="font-semibold text-gray-900">Edit full evaluation</h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  This will open the full 5-step evaluate form with saved details pre-filled.
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Saving there will update this same history record (no duplicate).
-                </p>
+                <p className="text-xs text-gray-500 mt-1">This will open the full 5-step evaluate form with saved details pre-filled.</p>
+                <p className="text-xs text-gray-500 mt-1">Saving there will update this same history record (no duplicate).</p>
               </div>
               <button onClick={()=>setEditEvalModal(null)} className="text-gray-400 hover:text-gray-600 ml-4 text-xl">×</button>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-4">
-              <p className="text-xs text-blue-700">
-                {editEvalModal.make} {editEvalModal.model} {editEvalModal.variant ? `(${editEvalModal.variant})` : ""} · {editEvalModal.car_reg_no || "—"}
-              </p>
+              <p className="text-xs text-blue-700">{editEvalModal.make} {editEvalModal.model} {editEvalModal.variant ? `(${editEvalModal.variant})` : ""} · {editEvalModal.car_reg_no || "—"}</p>
             </div>
             <div className="flex gap-3">
-              <button onClick={confirmOpenEditEval}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl">
-                Open full form
-              </button>
+              <button onClick={confirmOpenEditEval} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl">Open full form</button>
               <button onClick={()=>setEditEvalModal(null)} className="px-5 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
             </div>
           </div>
