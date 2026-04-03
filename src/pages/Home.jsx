@@ -630,9 +630,6 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
       const nextResult = { fair_value:fairValue, suggested_purchase_price:suggestedPurchasePrice, decision, breakdown:{ base_price_used:basePrice, age_years:age }, market_stats:marketStats };
       setResult(nextResult);
 
-      const condSnapshot = {};
-      conditions.forEach(c => { condSnapshot[`cond_${c.id}`] = !!condChecks[c.id]; });
-
       const payload = {
         eval_date: new Date().toISOString(),
         ...form,
@@ -647,7 +644,6 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
         market_min_price: nextResult.market_stats?.min||null,
         market_max_price: nextResult.market_stats?.max||null,
         decision: nextResult.decision,
-        ...condSnapshot,
       };
 
       setAutoSaving(true);
