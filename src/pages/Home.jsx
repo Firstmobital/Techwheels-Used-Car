@@ -472,6 +472,7 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
   const [rtoLoading, setRtoLoading] = useState(false);
   const [rtoFound, setRtoFound] = useState(false);
   const [rtoFields, setRtoFields] = useState({});
+  const [enableRtoLookup, setEnableRtoLookup] = useState(false);
   const rtoDebounceRef = useRef(null);
 
   const [sections, setSections] = useState(() => {
@@ -801,7 +802,7 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
         <div>
           <div className="flex flex-wrap gap-3 mb-3 text-xs">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-400 inline-block"></span><span className="text-gray-500">Auto from login</span></span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"></span><span className="text-gray-500">Auto from RTO</span></span>
+            {enableRtoLookup && <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-400 inline-block"></span><span className="text-gray-500">Auto from RTO</span></span>}
           </div>
 
           {/* Section 1 */}
@@ -840,22 +841,36 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
                     placeholder="10-digit number" inputMode="numeric"/>
                 </Field>
                 <Field label="Car reg. no." required>
-                  <div className="relative">
-                    <input
-                      className={`${inp} ${!form.car_reg_no?"border-red-300":"border-green-400"} pr-16`}
-                      value={form.car_reg_no}
-                      onChange={e=>{
-                        let v=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");
-                        if(v.length>4)v=v.slice(0,4)+"-"+v.slice(4);
-                        if(v.length>7)v=v.slice(0,7)+"-"+v.slice(7);
-                        if(v.length>12)v=v.slice(0,12);
-                        set("car_reg_no",v);
-                        const cleanLen = v.replace(/-/g,"").length;
-                        if(cleanLen >= 9 && cleanLen <= 11) lookupRTO(v);
-                      }}
-                      placeholder="RJ14-UB-3469" maxLength={12}/>
-                    {rtoLoading && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500">Looking up…</span>}
-                    {rtoFound && !rtoLoading && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-green-600">RTO ✓</span>}
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <input
+                        className={`${inp} ${!form.car_reg_no?"border-red-300":"border-green-400"} pr-16`}
+                        value={form.car_reg_no}
+                        onChange={e=>{
+                          let v=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");
+                          if(v.length>4)v=v.slice(0,4)+"-"+v.slice(4);
+                          if(v.length>7)v=v.slice(0,7)+"-"+v.slice(7);
+                          if(v.length>12)v=v.slice(0,12);
+                          set("car_reg_no",v);
+                          const cleanLen = v.replace(/-/g,"").length;
+                          if(cleanLen >= 9 && cleanLen <= 11 && enableRtoLookup) lookupRTO(v);
+                        }}
+                        placeholder="RJ14-UB-3469" maxLength={12}/>
+                      {rtoLoading && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500">Looking up…</span>}
+                      {rtoFound && !rtoLoading && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-green-600">RTO ✓</span>}
+                    </div>
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={enableRtoLookup}
+                        onChange={e=>{
+                          setEnableRtoLookup(e.target.checked);
+                          if(!e.target.checked) { setRtoFound(false); setRtoLoading(false); }
+                        }}
+                        className="w-4 h-4 rounded accent-orange-500 cursor-pointer"
+                      />
+                      <label className="text-xs text-amber-700 cursor-pointer flex-1">Auto-lookup from RTO <span className="text-amber-600 text-xs">(Temporary)</span></label>
+                    </div>
                   </div>
                 </Field>
               </div>
