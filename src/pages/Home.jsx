@@ -232,13 +232,12 @@ export default function Home() {
       {isUsedCarDept && (
       <aside className="hidden lg:flex flex-col w-56 bg-white border-r border-gray-100 shrink-0 h-screen sticky top-0">
         <div className="px-4 py-5 border-b border-gray-100">
-          <div className="flex flex-col gap-1">
-            <img
-              src="/techwheels-logo.svg"
-              alt="Techwheels Used Car"
-              className="w-full h-24 object-contain"
-            />
-            <p className="text-xs text-gray-400 text-center">Car Evaluation</p>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white text-sm font-bold">TW</div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900 leading-tight">Techwheels</p>
+              <p className="text-xs text-gray-400">Car Evaluation</p>
+            </div>
           </div>
         </div>
         <nav className="flex-1 px-2 py-4 space-y-0.5">
@@ -280,14 +279,7 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-h-screen lg:min-h-0">
         {/* Mobile topbar */}
         <header className="lg:hidden bg-orange-500 text-white px-4 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2">
-            <img
-              src="/techwheels-logo.svg"
-              alt="Techwheels Used Car"
-              className="h-8 w-auto rounded bg-white p-0.5"
-            />
-            <p className="font-semibold text-base">{NAV.find(n=>n.id===nav)?.label || "Evaluate car"}</p>
-          </div>
+          <div><p className="font-semibold text-base">{NAV.find(n=>n.id===nav)?.label || "Evaluate car"}</p></div>
           <div className="flex items-center gap-2">
             {isUsedCarDept && (
               <button onClick={handleScrape} disabled={scraping} className="text-xs bg-white/20 text-white px-3 py-1.5 rounded-lg font-medium">
