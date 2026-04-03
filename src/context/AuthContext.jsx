@@ -6,6 +6,21 @@ const AuthContext = createContext(undefined);
 const AUTH_INIT_TIMEOUT_MS = 8000;
 const AUTH_STORAGE_KEY = 'techwheels-auth';
 
+const asNumber = (value) => {
+  const num = Number(value);
+  return Number.isNaN(num) ? null : num;
+};
+
+const asTrue = (value) => {
+  if (value === true) return true;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+  if (typeof value === 'number') return value === 1;
+  return false;
+};
+
 const fetchEmployee = async (userId) => {
   if (!userId) return null;
   const { data, error } = await supabase
@@ -141,10 +156,27 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  const employeeDepartmentId = asNumber(employee?.department_id);
+  const employeeRoleId = asNumber(employee?.role_id);
+  const employeeSuperAdmin = asTrue(employee?.is_super_admin);
+
+  const metadata = user?.app_metadata || user?.user_metadata || {};
+  const metadataDepartmentId = asNumber(metadata.department_id ?? metadata.departmentId);
+  const metadataRoleId = asNumber(metadata.role_id ?? metadata.roleId);
+  const metadataRole = String(metadata.role ?? metadata.user_role ?? '').toLowerCase();
+  const metadataSuperAdmin =
+    asTrue(metadata.is_super_admin) ||
+    asTrue(metadata.super_admin) ||
+    metadataRole === 'admin' ||
+    metadataRole === 'super_admin';
+
   const isUsedCarDept =
-    employee?.department_id === 13 ||
-    employee?.role_id === 6 ||
-    employee?.is_super_admin === true;
+    employeeDepartmentId === 13 ||
+    employeeRoleId === 6 ||
+    employeeSuperAdmin ||
+    metadataDepartmentId === 13 ||
+    metadataRoleId === 6 ||
+    metadataSuperAdmin;
 
   const employeeName = employee
     ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim()
