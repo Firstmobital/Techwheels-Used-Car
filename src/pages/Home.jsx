@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { CarEvaluation, CarListing, ScrapeLog, ConditionCheck } from "../api/entities";
 import { scrapeListings } from "../api/backendFunctions";
 import { supabase } from "../api/supabaseClient";
@@ -142,6 +143,7 @@ Techwheels Used Cars, ${ev.branch || "Jaipur"}`;
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function Home() {
   const { signOut, isUsedCarDept, employeeName, branchName, employee } = useAuth();
+  const navigate = useNavigate();
   const [nav, setNav] = useState(isUsedCarDept ? "dashboard" : "evaluate");
   const [stats, setStats] = useState({ total:0, goodDeals:0, overpriced:0, listings:0 });
   const [recentEvals, setRecentEvals] = useState([]);
@@ -205,7 +207,15 @@ export default function Home() {
 
   const handleLogout = async () => {
     setLoggingOut(true);
-    try { await signOut(); } catch(e) { setScrapeMsg({ error: e.message }); } finally { setLoggingOut(false); }
+    try {
+      await signOut();
+    } catch(e) {
+      setScrapeMsg({ error: e.message });
+    } finally {
+      sessionStorage.removeItem("tw_post_login_redirect");
+      setLoggingOut(false);
+      navigate("/login", { replace: true });
+    }
   };
 
   // Navigate to evaluate with prefill from exchange enquiry

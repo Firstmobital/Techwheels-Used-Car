@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
     }, AUTH_INIT_TIMEOUT_MS);
 
     const init = async () => {
+      let sess = null;
       try {
         const { data, error } = await supabase.auth.getSession();
         if (!isMounted) return;
@@ -45,16 +46,9 @@ export function AuthProvider({ children }) {
           console.error('Error loading session:', error.message);
         }
 
-        const sess = data?.session ?? null;
+        sess = data?.session ?? null;
         setSession(sess);
         setUser(sess?.user ?? null);
-
-        if (sess?.user) {
-          const emp = await fetchEmployee(sess.user.id);
-          if (isMounted) setEmployee(emp);
-        } else {
-          setEmployee(null);
-        }
       } catch (error) {
         if (!isMounted) return;
         console.error('Unexpected error while initializing auth session:', error);
@@ -72,27 +66,40 @@ export function AuthProvider({ children }) {
           setLoading(false);
         }
       }
+
+      if (!sess?.user || !isMounted) {
+        if (isMounted) setEmployee(null);
+        return;
+      }
+
+      try {
+        const emp = await fetchEmployee(sess.user.id);
+        if (isMounted) setEmployee(emp);
+      } catch (error) {
+        console.error('Error fetching employee after session init:', error);
+        if (isMounted) setEmployee(null);
+      }
     };
 
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
       if (!isMounted) return;
-      try {
-        setSession(nextSession);
-        setUser(nextSession?.user ?? null);
+      setSession(nextSession);
+      setUser(nextSession?.user ?? null);
+      setLoading(false);
 
-        if (nextSession?.user) {
-          const emp = await fetchEmployee(nextSession.user.id);
-          if (isMounted) setEmployee(emp);
-        } else {
-          setEmployee(null);
-        }
+      if (!nextSession?.user) {
+        setEmployee(null);
+        return;
+      }
+
+      try {
+        const emp = await fetchEmployee(nextSession.user.id);
+        if (isMounted) setEmployee(emp);
       } catch (error) {
         console.error('Error handling auth state change:', error);
         if (isMounted) setEmployee(null);
-      } finally {
-        if (isMounted) setLoading(false);
       }
     });
 
@@ -116,8 +123,22 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    setSession(null);
+    setUser(null);
+    setEmployee(null);
+    setLoading(false);
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw error;
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(AUTH_STORAGE_KEY);
+      } catch (storageError) {
+        console.error('Failed to clear auth storage during sign out:', storageError);
+      }
+      throw error;
+    }
   }, []);
 
   const isUsedCarDept =
