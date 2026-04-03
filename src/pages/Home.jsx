@@ -515,39 +515,58 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
   }, []);
 
   // RTO lookup — debounced 600ms, fires once when reg number is complete
-  const lookupRTO = useCallback((regNo) => {
-    // Clear any pending lookup
-    if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
-    const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
-    if (cleaned.length < 9) return;
-    rtoDebounceRef.current = setTimeout(async () => {
-      setRtoLoading(true);
-      try {
-        // Try exact match first (fastest)
-        const { data, error } = await supabase
+const lookupRTO = useCallback((regNo) => {
+  if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
+  const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
+  if (cleaned.length < 9) return;
+
+  rtoDebounceRef.current = setTimeout(async () => {
+    setRtoLoading(true);
+    try {
+      // Try exact match first
+      const { data, error } = await supabase
+        .from("all_rto_data")
+        .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+        .eq("Registration No.", regNo)
+        .maybeSingle();
+
+      if (!error && data) {
+        applyRTO(data);
+        setRtoLoading(false);
+        return;
+      }
+
+      // Fallback: try without dashes (e.g. "RJ14UB3469")
+      const { data: data2 } = await supabase
+        .from("all_rto_data")
+        .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+        .eq("Registration No.", cleaned)
+        .maybeSingle();
+
+      if (data2) {
+        applyRTO(data2);
+        setRtoLoading(false);
+        return;
+      }
+
+      // Last fallback: try with standard dash format RJ-14-UB-3469
+      const parts = cleaned.match(/^([A-Z]{2})(\d{2})([A-Z]{1,3})(\d{1,4})$/);
+      if (parts) {
+        const formatted = `${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
+        const { data: data3 } = await supabase
           .from("all_rto_data")
           .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-          .eq("Registration No.", regNo)
+          .eq("Registration No.", formatted)
           .maybeSingle();
-
-        if (!error && data) {
-          applyRTO(data);
-        } else {
-          // Fallback: fuzzy match tolerant of dashes/spaces in stored value
-          const fuzzyPattern = `%${cleaned.split("").join("%")}%`;
-          const { data: data2 } = await supabase
-            .from("all_rto_data")
-            .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-            .ilike("Registration No.", fuzzyPattern)
-            .maybeSingle();
-          if (data2) applyRTO(data2);
-        }
-      } catch(e) {
-        console.warn("RTO lookup failed:", e.message);
+        if (data3) applyRTO(data3);
       }
-      setRtoLoading(false);
-    }, 600);
-  }, [form.customer_name, form.customer_mobile]);
+
+    } catch(e) {
+      console.warn("RTO lookup failed:", e.message);
+    }
+    setRtoLoading(false);
+  }, 400); // reduced from 600ms since queries will be fast now
+}, [form.customer_name, form.customer_mobile]);
 
   const applyRTO = (data) => {
     setRtoFound(true);
