@@ -5,16 +5,11 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// getSession() reads from localStorage so it should be near-instant.
-// 3s is generous; 8s was masking the real problem (Supabase unreachable).
-const AUTH_INIT_TIMEOUT_MS = 3000;
-
 // The key we set in supabaseClient.js storageKey option.
 const SUPABASE_STORAGE_KEY = 'techwheels-auth';
 
@@ -96,24 +91,17 @@ export function AuthProvider({ children }) {
   // 'idle' | 'loading' | 'found' | 'not_found' | 'error'
   const [employeeStatus, setEmployeeStatus] = useState('idle');
 
-  // Ref-based mount guard — prevents setState calls after unmount
-  const isMounted = useRef(true);
-  useEffect(() => {
-    isMounted.current = true;
-    return () => { isMounted.current = false; };
-  }, []);
-
   // ── Load employee ──────────────────────────────────────────────────────────
   const loadEmployee = useCallback(async (userId) => {
     if (!userId) {
-      if (isMounted.current) { setEmployee(null); setEmployeeStatus('idle'); }
+      setEmployee(null);
+      setEmployeeStatus('idle');
       return;
     }
 
-    if (isMounted.current) setEmployeeStatus('loading');
+    setEmployeeStatus('loading');
 
     const { data, notFound, error } = await fetchEmployee(userId);
-    if (!isMounted.current) return;
 
     if (error) {
       setEmployee(null);
@@ -133,54 +121,50 @@ export function AuthProvider({ children }) {
 
   // ── Session initialisation ─────────────────────────────────────────────────
   useEffect(() => {
-    let timeoutId;
+    let mounted = true;
 
-    const init = async () => {
-      // Timeout so a hanging network call never blocks the UI forever.
-      // getSession() should read from localStorage and be near-instant —
-      // if it takes >3s, Supabase is unreachable.
-      timeoutId = window.setTimeout(() => {
-        if (!isMounted.current) return;
-        console.warn('[Auth] Session init timed out — Supabase may be unreachable.');
-        setLoading(false);
-      }, AUTH_INIT_TIMEOUT_MS);
-
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (!isMounted.current) return;
+    supabase.auth
+      .getSession()
+      .then(async ({ data, error }) => {
+        if (!mounted) return;
 
         if (error) {
           console.error('[Auth] getSession error:', error.message);
           nukeLocalSession();
-          setSession(null); setUser(null); setEmployee(null); setEmployeeStatus('idle');
+          setSession(null);
+          setUser(null);
+          setEmployee(null);
+          setEmployeeStatus('idle');
           return;
         }
 
-        const sess = data?.session ?? null;
-        setSession(sess);
-        setUser(sess?.user ?? null);
+        const nextSession = data?.session ?? null;
+        setSession(nextSession);
+        setUser(nextSession?.user ?? null);
 
-        // Load employee before clearing loading state to avoid a layout flash
-        if (sess?.user) await loadEmployee(sess.user.id);
-
-      } catch (err) {
-        console.error('[Auth] Unexpected init error:', err);
-        nukeLocalSession();
-        if (isMounted.current) {
-          setSession(null); setUser(null); setEmployee(null); setEmployeeStatus('idle');
+        // Load employee before clearing loading state
+        if (nextSession?.user) {
+          await loadEmployee(nextSession.user.id);
         }
-      } finally {
-        window.clearTimeout(timeoutId);
-        if (isMounted.current) setLoading(false);
-      }
-    };
-
-    init();
+      })
+      .catch((err) => {
+        console.error('[Auth] Unexpected init error:', err);
+        if (mounted) {
+          nukeLocalSession();
+          setSession(null);
+          setUser(null);
+          setEmployee(null);
+          setEmployeeStatus('idle');
+        }
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
 
     // ── Auth state listener ──────────────────────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, nextSession) => {
-        if (!isMounted.current) return;
+        if (!mounted) return;
 
         // TOKEN_REFRESHED is silent — just update session, no employee re-fetch needed
         if (event === 'TOKEN_REFRESHED') {
@@ -194,7 +178,7 @@ export function AuthProvider({ children }) {
         if (!nextSession?.user) {
           setEmployee(null);
           setEmployeeStatus('idle');
-          if (isMounted.current) setLoading(false);
+          setLoading(false);
           return;
         }
 
@@ -203,12 +187,12 @@ export function AuthProvider({ children }) {
           await loadEmployee(nextSession.user.id);
         }
 
-        if (isMounted.current) setLoading(false);
+        setLoading(false);
       }
     );
 
     return () => {
-      window.clearTimeout(timeoutId);
+      mounted = false;
       subscription.unsubscribe();
     };
   }, [loadEmployee]);
