@@ -511,45 +511,34 @@ function EvaluatePage({ prefill, editEvalData, employeeName, branchName, isUsedC
   }, []);
 
   const lookupRTO = useCallback((regNo) => {
-    if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
-    const cleaned = regNo.replace(/-/g, "").replace(/\s/g, "").toUpperCase();
-    if (cleaned.length < 9) return;
+  if (rtoDebounceRef.current) clearTimeout(rtoDebounceRef.current);
+  
+  // Strip ALL dashes and spaces, uppercase
+  const cleaned = regNo.replace(/[-\s]/g, "").toUpperCase();
+  
+  // Need at least 9 chars (e.g. RJ14UB123 = 9)
+  if (cleaned.length < 9) return;
 
-    rtoDebounceRef.current = setTimeout(async () => {
-      setRtoLoading(true);
-      try {
-        const { data } = await supabase
-          .from("all_rto_data")
-          .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-          .eq("Registration No.", regNo)
-          .maybeSingle();
+  rtoDebounceRef.current = setTimeout(async () => {
+    setRtoLoading(true);
+    try {
+      // Your DB stores WITHOUT dashes, so always search cleaned version
+      const { data, error } = await supabase
+        .from("all_rto_data")
+        .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
+        .eq("Registration No.", cleaned)
+        .maybeSingle();
 
-        if (data) { applyRTO(data); setRtoLoading(false); return; }
-
-        const { data: data2 } = await supabase
-          .from("all_rto_data")
-          .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-          .eq("Registration No.", cleaned)
-          .maybeSingle();
-
-        if (data2) { applyRTO(data2); setRtoLoading(false); return; }
-
-        const parts = cleaned.match(/^([A-Z]{2})(\d{2})([A-Z]{1,3})(\d{1,4})$/);
-        if (parts) {
-          const formatted = `${parts[1]}-${parts[2]}-${parts[3]}-${parts[4]}`;
-          const { data: data3 } = await supabase
-            .from("all_rto_data")
-            .select("Registration No., Owner Name, Maker Name, Model Name, Fuel Type, Color, Mobile No.")
-            .eq("Registration No.", formatted)
-            .maybeSingle();
-          if (data3) applyRTO(data3);
-        }
-      } catch(e) {
-        console.warn("RTO lookup failed:", e.message);
+      if (!error && data) {
+        applyRTO(data);
       }
-      setRtoLoading(false);
-    }, 400);
-  }, [form.customer_name, form.customer_mobile]);
+      // No fallback needed — DB is consistently without dashes
+    } catch(e) {
+      console.warn("RTO lookup failed:", e.message);
+    }
+    setRtoLoading(false);
+  }, 500);
+}, [form.customer_name, form.customer_mobile]);
 
   const applyRTO = (data) => {
     setRtoFound(true);
