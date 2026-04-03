@@ -122,11 +122,21 @@ export function AuthProvider({ children }) {
   // ── Session initialisation ─────────────────────────────────────────────────
   useEffect(() => {
     let mounted = true;
+    let initTimeoutId;
+
+    // Safety timeout — unblock UI after 5s if getSession hangs
+    initTimeoutId = setTimeout(() => {
+      if (mounted) {
+        console.warn('[Auth] Session init timeout — unblocking UI.');
+        setLoading(false);
+      }
+    }, 5000);
 
     supabase.auth
       .getSession()
       .then(async ({ data, error }) => {
         if (!mounted) return;
+        clearTimeout(initTimeoutId);
 
         if (error) {
           console.error('[Auth] getSession error:', error.message);
@@ -135,6 +145,7 @@ export function AuthProvider({ children }) {
           setUser(null);
           setEmployee(null);
           setEmployeeStatus('idle');
+          setLoading(false);
           return;
         }
 
@@ -144,21 +155,28 @@ export function AuthProvider({ children }) {
 
         // Load employee before clearing loading state
         if (nextSession?.user) {
-          await loadEmployee(nextSession.user.id);
+          try {
+            await loadEmployee(nextSession.user.id);
+          } catch (empErr) {
+            console.error('[Auth] loadEmployee error:', empErr);
+            setEmployee(null);
+            setEmployeeStatus('error');
+          }
         }
+
+        if (mounted) setLoading(false);
       })
       .catch((err) => {
         console.error('[Auth] Unexpected init error:', err);
         if (mounted) {
+          clearTimeout(initTimeoutId);
           nukeLocalSession();
           setSession(null);
           setUser(null);
           setEmployee(null);
           setEmployeeStatus('idle');
+          setLoading(false);
         }
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
       });
 
     // ── Auth state listener ──────────────────────────────────────────────────
@@ -184,7 +202,13 @@ export function AuthProvider({ children }) {
 
         // Only re-fetch employee on real sign-in events
         if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          await loadEmployee(nextSession.user.id);
+          try {
+            await loadEmployee(nextSession.user.id);
+          } catch (empErr) {
+            console.error('[Auth] loadEmployee error in listener:', empErr);
+            setEmployee(null);
+            setEmployeeStatus('error');
+          }
         }
 
         setLoading(false);
@@ -193,6 +217,7 @@ export function AuthProvider({ children }) {
 
     return () => {
       mounted = false;
+      clearTimeout(initTimeoutId);
       subscription.unsubscribe();
     };
   }, [loadEmployee]);
