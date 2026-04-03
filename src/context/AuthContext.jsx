@@ -3,6 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext(undefined);
+const AUTH_INIT_TIMEOUT_MS = 8000;
+const AUTH_STORAGE_KEY = 'techwheels-auth';
 
 const fetchEmployee = async (userId) => {
   if (!userId) return null;
@@ -29,30 +31,76 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let isMounted = true;
-    const init = async () => {
-      const { data, error } = await supabase.auth.getSession();
+    const timeoutId = window.setTimeout(() => {
       if (!isMounted) return;
-      if (error) console.error('Error loading session:', error.message);
-      const sess = data?.session ?? null;
-      if (isMounted) { setSession(sess); setUser(sess?.user ?? null); }
-      if (sess?.user) {
-        const emp = await fetchEmployee(sess.user.id);
-        if (isMounted) setEmployee(emp);
+      console.warn('Auth session initialization timed out. Proceeding without blocking UI.');
+      setLoading(false);
+    }, AUTH_INIT_TIMEOUT_MS);
+
+    const init = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (!isMounted) return;
+        if (error) {
+          console.error('Error loading session:', error.message);
+        }
+
+        const sess = data?.session ?? null;
+        setSession(sess);
+        setUser(sess?.user ?? null);
+
+        if (sess?.user) {
+          const emp = await fetchEmployee(sess.user.id);
+          if (isMounted) setEmployee(emp);
+        } else {
+          setEmployee(null);
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        console.error('Unexpected error while initializing auth session:', error);
+        try {
+          window.localStorage.removeItem(AUTH_STORAGE_KEY);
+        } catch (storageError) {
+          console.error('Failed to clear stale auth storage:', storageError);
+        }
+        setSession(null);
+        setUser(null);
+        setEmployee(null);
+      } finally {
+        if (isMounted) {
+          window.clearTimeout(timeoutId);
+          setLoading(false);
+        }
       }
-      if (isMounted) setLoading(false);
     };
+
     init();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
       if (!isMounted) return;
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
-      if (nextSession?.user) {
-        const emp = await fetchEmployee(nextSession.user.id);
-        if (isMounted) setEmployee(emp);
-      } else { setEmployee(null); }
-      if (isMounted) setLoading(false);
+      try {
+        setSession(nextSession);
+        setUser(nextSession?.user ?? null);
+
+        if (nextSession?.user) {
+          const emp = await fetchEmployee(nextSession.user.id);
+          if (isMounted) setEmployee(emp);
+        } else {
+          setEmployee(null);
+        }
+      } catch (error) {
+        console.error('Error handling auth state change:', error);
+        if (isMounted) setEmployee(null);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     });
-    return () => { isMounted = false; subscription.unsubscribe(); };
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = useCallback(async (email, password) => {
