@@ -47,7 +47,6 @@ function nukeLocalSession() {
 async function fetchEmployee(userId) {
   if (!userId) return { data: null, notFound: false, error: null };
 
-  console.log('[Auth] fetchEmployee: querying for userId:', userId);
   const { data, error } = await supabase
     .from('employees')
     .select(`
@@ -59,8 +58,6 @@ async function fetchEmployee(userId) {
     .eq('auth_user_id', userId)
     .eq('employee_status', 'active')
     .maybeSingle(); // returns null (not error) when no row found
-
-  console.log('[Auth] fetchEmployee completed. Error:', error, 'Found:', !!data);
 
   if (error) {
     console.error('[Auth] fetchEmployee db error:', error.message);
@@ -127,21 +124,17 @@ export function AuthProvider({ children }) {
     let mounted = true;
     let initTimeoutId;
 
-    console.log('[Auth] Starting session init...');
-
     // Safety timeout — unblock UI after 5s if getSession hangs
     initTimeoutId = setTimeout(() => {
       if (mounted) {
-        console.warn('[Auth] Session init timeout — getSession() did not complete. Unblocking UI.');
+        console.warn('[Auth] Session init timeout — getSession() did not complete.');
         setLoading(false);
       }
     }, 5000);
 
-    console.log('[Auth] Calling supabase.auth.getSession()...');
     supabase.auth
       .getSession()
       .then(async ({ data, error }) => {
-        console.log('[Auth] getSession() completed. Error:', error, 'Has session:', !!data?.session);
         if (!mounted) return;
         clearTimeout(initTimeoutId);
 
@@ -157,13 +150,11 @@ export function AuthProvider({ children }) {
         }
 
         const nextSession = data?.session ?? null;
-        console.log('[Auth] Session state updated, user:', nextSession?.user?.email);
         setSession(nextSession);
         setUser(nextSession?.user ?? null);
 
         // Load employee before clearing loading state
         if (nextSession?.user) {
-          console.log('[Auth] Loading employee for user:', nextSession.user.id);
           try {
             await loadEmployee(nextSession.user.id);
           } catch (empErr) {
@@ -174,7 +165,6 @@ export function AuthProvider({ children }) {
         }
 
         if (mounted) {
-          console.log('[Auth] Session init complete, clearing loading state.');
           setLoading(false);
         }
       })
@@ -193,13 +183,11 @@ export function AuthProvider({ children }) {
 
     // ── Auth state listener ──────────────────────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, nextSession) => {
-        console.log('[Auth] Auth state changed:', event);
+      (event, nextSession) => {
         if (!mounted) return;
 
         // TOKEN_REFRESHED is silent — just update session, no employee re-fetch needed
         if (event === 'TOKEN_REFRESHED') {
-          console.log('[Auth] Token refreshed silently');
           setSession(nextSession);
           return;
         }
@@ -214,16 +202,17 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // Only re-fetch employee on real sign-in events
+        // Keep this callback non-blocking to avoid auth lock contention in Supabase.
         if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          console.log('[Auth] Sign-in detected, loading employee');
-          try {
-            await loadEmployee(nextSession.user.id);
-          } catch (empErr) {
-            console.error('[Auth] loadEmployee error in listener:', empErr);
-            setEmployee(null);
-            setEmployeeStatus('error');
-          }
+          window.setTimeout(() => {
+            if (!mounted) return;
+            loadEmployee(nextSession.user.id).catch((empErr) => {
+              if (!mounted) return;
+              console.error('[Auth] loadEmployee error in listener:', empErr);
+              setEmployee(null);
+              setEmployeeStatus('error');
+            });
+          }, 0);
         }
 
         setLoading(false);
@@ -231,7 +220,6 @@ export function AuthProvider({ children }) {
     );
 
     return () => {
-      console.log('[Auth] Cleaning up auth effect');
       mounted = false;
       clearTimeout(initTimeoutId);
       subscription.unsubscribe();
@@ -270,13 +258,11 @@ export function AuthProvider({ children }) {
     nukeLocalSession();
 
     // Step 2: Clear React state immediately so ProtectedRoute redirects at once
-    if (isMounted.current) {
-      setSession(null);
-      setUser(null);
-      setEmployee(null);
-      setEmployeeStatus('idle');
-      setLoading(false);
-    }
+    setSession(null);
+    setUser(null);
+    setEmployee(null);
+    setEmployeeStatus('idle');
+    setLoading(false);
 
     // Step 3: Best-effort server-side invalidation — don't await, don't throw
     supabase.auth.signOut({ scope: 'local' }).catch((err) => {
