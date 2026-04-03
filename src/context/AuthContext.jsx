@@ -1,28 +1,31 @@
 // @ts-nocheck
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-const AuthContext = createContext(undefined);
+// ─── Constants ────────────────────────────────────────────────────────────────
 const AUTH_INIT_TIMEOUT_MS = 8000;
-const AUTH_STORAGE_KEY = 'techwheels-auth';
+const SUPABASE_STORAGE_KEY = 'techwheels-auth'; // must match storageKey in supabaseClient.js
 
-const asNumber = (value) => {
-  const num = Number(value);
-  return Number.isNaN(num) ? null : num;
-};
+// ─── Context ──────────────────────────────────────────────────────────────────
+const AuthContext = createContext(undefined);
 
-const asTrue = (value) => {
-  if (value === true) return true;
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase();
-    return normalized === 'true' || normalized === '1' || normalized === 'yes';
-  }
-  if (typeof value === 'number') return value === 1;
-  return false;
-};
+// ─── Employee fetch ───────────────────────────────────────────────────────────
+/**
+ * Fetches the employee record linked to a Supabase auth user.
+ * Returns { data, notFound, error } so callers can distinguish
+ * between "record missing" and "network/db error".
+ */
+async function fetchEmployee(userId) {
+  if (!userId) return { data: null, notFound: false, error: null };
 
-const fetchEmployee = async (userId) => {
-  if (!userId) return null;
   const { data, error } = await supabase
     .from('employees')
     .select(`
@@ -33,150 +36,212 @@ const fetchEmployee = async (userId) => {
     `)
     .eq('auth_user_id', userId)
     .eq('employee_status', 'active')
-    .single();
-  if (error) { console.error('Error fetching employee:', error.message); return null; }
-  return data;
-};
+    .maybeSingle(); // ← returns null instead of error when no row found
 
+  if (error) {
+    console.error('[Auth] fetchEmployee db error:', error.message);
+    return { data: null, notFound: false, error };
+  }
+
+  return { data, notFound: data === null, error: null };
+}
+
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+const USED_CAR_DEPT_ID = 13;
+const USED_CAR_ROLE_ID = 6;
+
+function deriveIsUsedCarDept(employee) {
+  if (!employee) return false;
+  return (
+    Number(employee.department_id) === USED_CAR_DEPT_ID ||
+    Number(employee.role_id) === USED_CAR_ROLE_ID ||
+    employee.is_super_admin === true ||
+    employee.is_super_admin === 'true' ||
+    employee.is_super_admin === 1
+  );
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null);
-  const [user, setUser] = useState(null);
-  const [employee, setEmployee] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession]       = useState(null);
+  const [user, setUser]             = useState(null);
+  const [employee, setEmployee]     = useState(null);
+  const [loading, setLoading]       = useState(true);
 
+  // employeeStatus: 'idle' | 'loading' | 'found' | 'not_found' | 'error'
+  const [employeeStatus, setEmployeeStatus] = useState('idle');
+
+  // Prevent stale async updates after unmount
+  const isMounted = useRef(true);
   useEffect(() => {
-    let isMounted = true;
-    const timeoutId = window.setTimeout(() => {
-      if (!isMounted) return;
-      console.warn('Auth session initialization timed out. Proceeding without blocking UI.');
-      setLoading(false);
-    }, AUTH_INIT_TIMEOUT_MS);
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
+  // ── Load employee (shared logic) ───────────────────────────────────────────
+  const loadEmployee = useCallback(async (userId) => {
+    if (!userId) {
+      if (isMounted.current) {
+        setEmployee(null);
+        setEmployeeStatus('idle');
+      }
+      return;
+    }
+
+    if (isMounted.current) setEmployeeStatus('loading');
+
+    const { data, notFound, error } = await fetchEmployee(userId);
+
+    if (!isMounted.current) return;
+
+    if (error) {
+      setEmployee(null);
+      setEmployeeStatus('error');
+      console.warn('[Auth] Could not load employee record. User may have limited access.');
+      return;
+    }
+
+    if (notFound) {
+      setEmployee(null);
+      setEmployeeStatus('not_found');
+      console.warn('[Auth] No active employee record found for this user.');
+      return;
+    }
+
+    setEmployee(data);
+    setEmployeeStatus('found');
+  }, []);
+
+  // ── Initialise session on mount ────────────────────────────────────────────
+  useEffect(() => {
+    let timeoutId;
 
     const init = async () => {
-      let sess = null;
+      // Safety timeout — never block UI forever
+      timeoutId = window.setTimeout(() => {
+        if (!isMounted.current) return;
+        console.warn('[Auth] Session init timed out.');
+        setLoading(false);
+      }, AUTH_INIT_TIMEOUT_MS);
+
       try {
         const { data, error } = await supabase.auth.getSession();
-        if (!isMounted) return;
+
+        if (!isMounted.current) return;
+
         if (error) {
-          console.error('Error loading session:', error.message);
+          console.error('[Auth] getSession error:', error.message);
+          // Clear potentially corrupted storage
+          try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
+          setSession(null);
+          setUser(null);
+          setEmployee(null);
+          setEmployeeStatus('idle');
+          return;
         }
 
-        sess = data?.session ?? null;
+        const sess = data?.session ?? null;
         setSession(sess);
         setUser(sess?.user ?? null);
-      } catch (error) {
-        if (!isMounted) return;
-        console.error('Unexpected error while initializing auth session:', error);
-        try {
-          window.localStorage.removeItem(AUTH_STORAGE_KEY);
-        } catch (storageError) {
-          console.error('Failed to clear stale auth storage:', storageError);
+
+        // Load employee BEFORE clearing the loading state
+        // so the UI doesn't flash an intermediate state
+        if (sess?.user) {
+          await loadEmployee(sess.user.id);
         }
-        setSession(null);
-        setUser(null);
-        setEmployee(null);
+      } catch (err) {
+        console.error('[Auth] Unexpected init error:', err);
+        try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
+        if (isMounted.current) {
+          setSession(null);
+          setUser(null);
+          setEmployee(null);
+          setEmployeeStatus('idle');
+        }
       } finally {
-        if (isMounted) {
-          window.clearTimeout(timeoutId);
-          setLoading(false);
-        }
-      }
-
-      if (!sess?.user || !isMounted) {
-        if (isMounted) setEmployee(null);
-        return;
-      }
-
-      try {
-        const emp = await fetchEmployee(sess.user.id);
-        if (isMounted) setEmployee(emp);
-      } catch (error) {
-        console.error('Error fetching employee after session init:', error);
-        if (isMounted) setEmployee(null);
+        window.clearTimeout(timeoutId);
+        if (isMounted.current) setLoading(false);
       }
     };
 
     init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
-      if (!isMounted) return;
-      setSession(nextSession);
-      setUser(nextSession?.user ?? null);
-      setLoading(false);
+    // ── Auth state change listener ─────────────────────────────────────────
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, nextSession) => {
+        if (!isMounted.current) return;
 
-      if (!nextSession?.user) {
-        setEmployee(null);
-        return;
-      }
+        // TOKEN_REFRESHED: session updated silently — no need to re-fetch employee
+        if (event === 'TOKEN_REFRESHED') {
+          setSession(nextSession);
+          return;
+        }
 
-      try {
-        const emp = await fetchEmployee(nextSession.user.id);
-        if (isMounted) setEmployee(emp);
-      } catch (error) {
-        console.error('Error handling auth state change:', error);
-        if (isMounted) setEmployee(null);
+        setSession(nextSession);
+        setUser(nextSession?.user ?? null);
+
+        if (!nextSession?.user) {
+          setEmployee(null);
+          setEmployeeStatus('idle');
+          setLoading(false);
+          return;
+        }
+
+        // Only reload employee on actual sign-in events, not every state change
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          await loadEmployee(nextSession.user.id);
+        }
+
+        if (isMounted.current) setLoading(false);
       }
-    });
+    );
 
     return () => {
-      isMounted = false;
       window.clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadEmployee]);
 
+  // ── signIn ─────────────────────────────────────────────────────────────────
   const signIn = useCallback(async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
   }, []);
 
+  // ── signUp ─────────────────────────────────────────────────────────────────
   const signUp = useCallback(async (email, password) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
     return data;
   }, []);
 
+  // ── signOut ────────────────────────────────────────────────────────────────
+  // ⚠ Key fix: call Supabase FIRST, then clear local state.
+  // If the API call fails, the user remains logged in consistently.
   const signOut = useCallback(async () => {
-    setSession(null);
-    setUser(null);
-    setEmployee(null);
-    setLoading(false);
-
     try {
       const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error) throw error;
-    } catch (error) {
-      try {
-        window.localStorage.removeItem(AUTH_STORAGE_KEY);
-      } catch (storageError) {
-        console.error('Failed to clear auth storage during sign out:', storageError);
+    } catch (err) {
+      // Even if signOut API fails, nuke local storage so the user
+      // isn't stuck in a broken session on next load.
+      try { window.localStorage.removeItem(SUPABASE_STORAGE_KEY); } catch (_) {}
+      throw err;
+    } finally {
+      // Always clear local state after attempting signout
+      if (isMounted.current) {
+        setSession(null);
+        setUser(null);
+        setEmployee(null);
+        setEmployeeStatus('idle');
+        setLoading(false);
       }
-      throw error;
     }
   }, []);
 
-  const employeeDepartmentId = asNumber(employee?.department_id);
-  const employeeRoleId = asNumber(employee?.role_id);
-  const employeeSuperAdmin = asTrue(employee?.is_super_admin);
-
-  const metadata = user?.app_metadata || user?.user_metadata || {};
-  const metadataDepartmentId = asNumber(metadata.department_id ?? metadata.departmentId);
-  const metadataRoleId = asNumber(metadata.role_id ?? metadata.roleId);
-  const metadataRole = String(metadata.role ?? metadata.user_role ?? '').toLowerCase();
-  const metadataSuperAdmin =
-    asTrue(metadata.is_super_admin) ||
-    asTrue(metadata.super_admin) ||
-    metadataRole === 'admin' ||
-    metadataRole === 'super_admin';
-
-  const isUsedCarDept =
-    employeeDepartmentId === 13 ||
-    employeeRoleId === 6 ||
-    employeeSuperAdmin ||
-    metadataDepartmentId === 13 ||
-    metadataRoleId === 6 ||
-    metadataSuperAdmin;
+  // ── Derived values ─────────────────────────────────────────────────────────
+  const isUsedCarDept = deriveIsUsedCarDept(employee);
 
   const employeeName = employee
     ? `${employee.first_name || ''} ${employee.last_name || ''}`.trim()
@@ -184,18 +249,39 @@ export function AuthProvider({ children }) {
 
   const branchName = employee?.locations?.name || '';
 
+  // ── Context value ──────────────────────────────────────────────────────────
   const value = useMemo(() => ({
-    session, user, employee, loading,
+    // Core auth
+    session,
+    user,
+    loading,
     isAuthenticated: !!user,
+
+    // Employee
+    employee,
+    employeeStatus, // expose so UI can show "not registered" vs "error" states
     isUsedCarDept,
     employeeName,
     branchName,
-    signIn, signUp, signOut,
-  }), [loading, session, user, employee, isUsedCarDept, employeeName, branchName, signIn, signOut, signUp]);
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+    // Actions
+    signIn,
+    signUp,
+    signOut,
+  }), [
+    session, user, loading,
+    employee, employeeStatus, isUsedCarDept, employeeName, branchName,
+    signIn, signUp, signOut,
+  ]);
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within an AuthProvider.');
